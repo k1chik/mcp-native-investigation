@@ -1,0 +1,13 @@
+# internal working docs
+curr-state.md
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# editor
+.vscode/
+.idea/
