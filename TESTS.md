@@ -46,15 +46,15 @@ A tracker for every test in this investigation. Status is updated as work lands.
 
 *Does native Envoy behave well enough in real use?* Each check runs side-by-side (native lane vs broker lane) on the same backends.
 
-| ID | What it measures | Lanes | Bare-Envoy? | Status |
-|---|---|---|---|---|
-| V1 | Caching: upstream `tools/list` hits per backend over M calls | native vs broker | yes | `pending` |
-| V2 | Fanout storm: aggregate upstream RPS under `tools/list_changed` at frequency f | native vs broker | yes | `pending` |
-| V3 | Eager-vs-lazy: client `initialize` latency with one slow backend | native vs broker | yes | `pending` |
-| V4 | Hot-path `tools/call` p50/p99 latency | native vs broker | yes | `pending` |
-| V5 | Virtual-server filtering: tool subset per tenant (`MCPVirtualServer`) | broker (+ native negative) | no | `deferred` |
-| V6 | Per-backend auth: distinct credentials per backend | broker (+ native negative) | no | `deferred` |
-| V7 | Prefix migration: `server1_tool` vs `server1__tool` (delimiter change) | native-lane | yes | `pending` |
+| ID  | What it measures                                                               | Lanes                      | Bare-Envoy? | Status     |
+| --- | ------------------------------------------------------------------------------ | -------------------------- | ----------- | ---------- |
+| V1  | Caching: upstream `tools/list` hits per backend over M calls                   | native vs broker           | yes         | `pending`  |
+| V2  | Fanout storm: aggregate upstream RPS under `tools/list_changed` at frequency f | native vs broker           | yes         | `pending`  |
+| V3  | Eager-vs-lazy: client `initialize` latency with one slow backend               | native vs broker           | yes         | `pending`  |
+| V4  | Hot-path `tools/call` p50/p99 latency                                          | native vs broker           | yes         | `pending`  |
+| V5  | Virtual-server filtering: tool subset per tenant (`MCPVirtualServer`)          | broker (+ native negative) | no          | `deferred` |
+| V6  | Per-backend auth: distinct credentials per backend                             | broker (+ native negative) | no          | `deferred` |
+| V7  | Prefix migration: `server1_tool` vs `server1__tool` (delimiter change)         | native-lane                | yes         | `pending`  |
 
 ---
 
