@@ -38,7 +38,7 @@ A tracker for every test in this investigation. Status is updated as work lands.
 | C2 | An external authorizer reads `envoy.filters.http.mcp` metadata and allows/denies by tool name | native-lane-authz | `pending` |
 | C3 | `mcp_router` fans out and prefix-merges `tools/list` across two backends | native-lane | `pending` |
 | C4a | `mcp_router` rewrites the body to strip the tool prefix on `tools/call` for a static/shared tool list | native-lane | `pending` |
-| C4b | Same body rewrite for a user-specific tool list | c4b | `pending` |
+| C4b | Same body rewrite for a user-specific tool list | native-lane | `pending` |
 
 ---
 
