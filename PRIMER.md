@@ -158,6 +158,7 @@ Sometimes a tool needs to ask the user a follow-up in the middle of a call: "whi
 | [CONNLINK-1026](https://redhat.atlassian.net/browse/CONNLINK-1026) | the operational evaluation adding the caching and latency layer |
 | [Prior Wasm investigation](https://github.com/maleck13/mcp-gateway/tree/mcp-wasm) | the earlier proposal to replace ext-proc with a Wasm filter, before the native filter existed |
 | [Envoy AI Gateway - MCP](https://aigateway.envoyproxy.io/docs/0.5/capabilities/mcp/) | reference implementation showing how another project approached native MCP support |
+| [`initializeMCPSeverSession` - `request_handlers.go:665`](https://github.com/Kuadrant/mcp-gateway/blob/v0.7.0/internal/mcp-router/request_handlers.go#L665) | why `mcp-gateway` chose lazy backend session init - understanding this is required before evaluating what native's eager behavior costs |
 
 ---
 
