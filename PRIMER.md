@@ -149,6 +149,18 @@ Sometimes a tool needs to ask the user a follow-up in the middle of a call: "whi
 
 ---
 
+## Required reading
+
+| Resource | Why |
+|---|---|
+| [MCP specification](https://modelcontextprotocol.io/specification) | the wire protocol the whole investigation is about |
+| [Envoy native MCP filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/mcp_filter) | the filter being evaluated |
+| [ext_proc filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) | what it replaces |
+| [Kuadrant/mcp-gateway#809](https://github.com/Kuadrant/mcp-gateway/issues/809) | the original issue defining the investigation scope |
+| [CONNLINK-1026](https://redhat.atlassian.net/browse/CONNLINK-1026) | the operational evaluation adding the caching and latency layer |
+
+---
+
 ## Mini-glossary
 
 | Term | In plain words |
