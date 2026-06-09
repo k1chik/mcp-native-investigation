@@ -19,7 +19,7 @@ This is exactly what an **API gateway** does for HTTP. Put one box in front of e
 
 ---
 
-## The cast of characters
+## Key components
 
 **MCP server.** A program that offers a set of *tools* an AI agent can use: "look up the weather," "file a ticket," "run a query." **MCP** (Model Context Protocol) is the agreed way for an agent to talk to those tools.
 
@@ -49,23 +49,130 @@ The part to remember: **the tool name sits inside the message body** (`params.na
 
 ---
 
-## How one request flows
+## Required reading
 
-Two kinds of request matter.
+| Resource | Why |
+|---|---|
+| [MCP specification](https://modelcontextprotocol.io/specification) | the wire protocol the whole investigation is about |
+| [Envoy native MCP filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/mcp_filter) | the filter being evaluated |
+| [ext_proc filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) | what it replaces |
+| [Kuadrant/mcp-gateway#809](https://github.com/Kuadrant/mcp-gateway/issues/809) | the original issue defining the investigation scope |
+| [CONNLINK-1026](https://redhat.atlassian.net/browse/CONNLINK-1026) | the operational evaluation adding the caching and latency layer |
+| [Prior Wasm investigation](https://github.com/maleck13/mcp-gateway/tree/mcp-wasm) | the earlier proposal to replace ext-proc with a Wasm filter, before the native filter existed |
+| [Envoy AI Gateway - MCP](https://aigateway.envoyproxy.io/docs/0.5/capabilities/mcp/) | reference implementation showing how another project approached native MCP support |
+| [`initializeMCPSeverSession` - `request_handlers.go:665`](https://github.com/Kuadrant/mcp-gateway/blob/v0.7.0/internal/mcp-router/request_handlers.go#L665) | why `mcp-gateway` chose lazy backend session init - understanding this is required before evaluating what native's eager behavior costs |
 
-**1. "What can I do?" - `tools/list` (discovery)**
+---
+
+## The life of a request
+
+Three requests drive the investigation. Each one exposes a different difference between the native path and the broker.
+
+---
+
+### tools/call - the hot path
+
+The agent runs a tool. This is the frequent, latency-sensitive path and the primary target of the investigation.
+
+**Native (in-process, no gRPC hop):**
 
 ```
-agent → gateway → ask each backend for its tools → combine into one list → send back to agent
+agent
+  |  tools/call { "name": "serverA__get_weather" }
+  v
+mcp_filter    -- parses body, writes tool name + method to dynamic metadata
+  |
+mcp_router    -- reads "serverA" from the prefix, strips it,
+  |              rewrites body to { "name": "get_weather" }, routes to backend A
+  v
+backend A     -- receives { "name": "get_weather" }, runs the tool
+  |
+  v
+agent         -- result
 ```
 
-**2. "Do this." - `tools/call` (the actual work)**
+**Broker (ext-proc, gRPC hop on every request):**
 
 ```
-agent → gateway → pick the right backend → forward the call → send the result back
+agent
+  |  tools/call { "name": "serverA_get_weather" }
+  v
+Envoy         -- receives request, hands off to ext-proc over gRPC
+  |
+ext-proc      -- parses body, adds routing headers, decides backend
+  |
+Envoy         -- receives modified request back from ext-proc, routes
+  |
+  v
+backend A     -- receives { "name": "get_weather" }, runs the tool
+  |
+  v
+agent         -- result
 ```
 
-Most traffic is the second kind, which is why its speed matters most.
+The native path is all in-process. The broker adds a gRPC round-trip to ext-proc on every single request - that is the latency tax the investigation is measuring.
+
+---
+
+### tools/list - discovery (fan-out)
+
+The agent asks what tools are available. This happens less often but drives two key differences.
+
+```
+                             tools/list
+                                  |
+agent --> gateway -+-> backend A --> [a1, a2] --+
+                   |                             |
+                   +-> backend B --> [b1, b2] --+--> prefix + merge --> agent
+                   |                             |
+                   +-> backend C --> [c1, c2] --+
+
+                   result: [serverA__a1, serverA__a2,
+                             serverB__b1, serverB__b2,
+                             serverC__c1, serverC__c2]
+```
+
+**Native:** hits all backends on every discovery call - no cache. Ten backends means ten upstream requests every time an agent asks what it can do.
+
+**Broker:** returns a cached list. Only re-fetches when a backend fires a `tools/list_changed` notification. One discovery call = zero upstream hits until something changes.
+
+---
+
+### initialize - startup (eager vs lazy)
+
+Before any calls can happen, the gateway and each backend exchange an `initialize` handshake. How the gateway handles a slow backend here is one of the sharpest differences.
+
+**Native - eager (blocks until all backends respond):**
+
+```
+client
+  |  initialize
+  v
+gateway -+-> backend A ......... ok   (12 ms)
+         |
+         +-> backend B ......... ok   (15 ms)
+         |
+         +-> backend C ......... ok   (5000 ms, slow)
+         |
+         | (waits for all three before responding)
+         v
+    respond to client          (~5027 ms total)
+```
+
+**Broker - lazy (responds immediately, connects backends in the background):**
+
+```
+client
+  |  initialize
+  v
+gateway --> respond to client immediately
+  |
+  +--> backend A  (connecting in background)
+  +--> backend B  (connecting in background)
+  +--> backend C  (slow - still connecting in background, client unaffected)
+```
+
+One slow backend delays every connecting client in the native path. The broker shifts that cost to the background - the client connects instantly and tools become available as backends come up.
 
 ---
 
@@ -75,11 +182,11 @@ The thing that trips everyone up: **the gateway is both a server *and* a client.
 
 Three roles:
 
-| Role | Who | Acts as |
-|---|---|---|
-| **Client** | the AI agent | sends requests |
+| Role        | Who                                    | Acts as                                        |
+| ----------- | -------------------------------------- | ---------------------------------------------- |
+| **Client**  | the AI agent                           | sends requests                                 |
 | **Gateway** | native Envoy or `Kuadrant/mcp-gateway` | server to the agent and client to the backends |
-| **Backend** | the actual MCP servers | own the real tools |
+| **Backend** | the actual MCP servers                 | own the real tools                             |
 
 One naming point: **"the broker" is a component of `Kuadrant/mcp-gateway`**, not a separate thing. `Kuadrant/mcp-gateway` has three parts: the **router** (parses and rewrites on the data path), the **broker** (aggregates, caches, holds sessions), and the **controller** (Kubernetes config). The core question the investigation explores, drawn from [issue #809](https://github.com/Kuadrant/mcp-gateway/issues/809), is narrow: **can native Envoy replace the router?** The broker and controller stay either way.
 
@@ -144,21 +251,6 @@ Sometimes a tool needs to ask the user a follow-up in the middle of a call: "whi
 ### 6. "Native vs. broker": what is being compared
 
 "Native" means the built-in Envoy filters. "Broker" (or "ext-proc") means the current custom gateway code. The whole investigation is one question: **how much can move from the custom code to the built-in filters, and what has to stay?**
-
----
-
-## Required reading
-
-| Resource | Why |
-|---|---|
-| [MCP specification](https://modelcontextprotocol.io/specification) | the wire protocol the whole investigation is about |
-| [Envoy native MCP filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/mcp_filter) | the filter being evaluated |
-| [ext_proc filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter) | what it replaces |
-| [Kuadrant/mcp-gateway#809](https://github.com/Kuadrant/mcp-gateway/issues/809) | the original issue defining the investigation scope |
-| [CONNLINK-1026](https://redhat.atlassian.net/browse/CONNLINK-1026) | the operational evaluation adding the caching and latency layer |
-| [Prior Wasm investigation](https://github.com/maleck13/mcp-gateway/tree/mcp-wasm) | the earlier proposal to replace ext-proc with a Wasm filter, before the native filter existed |
-| [Envoy AI Gateway - MCP](https://aigateway.envoyproxy.io/docs/0.5/capabilities/mcp/) | reference implementation showing how another project approached native MCP support |
-| [`initializeMCPSeverSession` - `request_handlers.go:665`](https://github.com/Kuadrant/mcp-gateway/blob/v0.7.0/internal/mcp-router/request_handlers.go#L665) | why `mcp-gateway` chose lazy backend session init - understanding this is required before evaluating what native's eager behavior costs |
 
 ---
 
