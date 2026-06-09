@@ -6,7 +6,7 @@ A tracker for every test in this investigation. Status is updated as work lands.
 |---|---|
 | `done` | ran, result recorded |
 | `pending` | not yet run |
-| `deferred` | needs the full Kuadrant/Istio stack — out of scope for the bare-Envoy spine |
+| `deferred` | needs the full Kuadrant/Istio stack - out of scope for the bare-Envoy spine |
 
 ---
 
@@ -24,7 +24,7 @@ A tracker for every test in this investigation. Status is updated as work lands.
 
 | Task | Status |
 |---|---|
-| Run `create-env.sh` — clone sources, pull images, smoke-check | `done` |
+| Run `create-env.sh` - clone sources, pull images, smoke-check | `done` |
 
 ---
 

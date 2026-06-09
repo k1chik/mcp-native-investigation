@@ -40,12 +40,12 @@ The part to remember: **the tool name sits inside the message body** (`params.na
 **ext-proc.** Today, one of those steps hands the MCP-specific work to a [*separate program*](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter): read the message, find the tool, rewrite it, route it. "ext-proc" is short for *external processor*. It works fine, but handing work to a separate program and getting it back adds a small delay to every request.
 
 **The native MCP filters (new in Envoy 1.38).** Newer Envoy has two built-in steps that do much of that same work *inside* Envoy, with no separate program:
-- `mcp_filter`: the **reader** — parses the message and makes its details available to the steps that follow.
-- `mcp_router`: the **router** — rewrites the message and sends it to the right server.
+- `mcp_filter`: the **reader** - parses the message and makes its details available to the steps that follow.
+- `mcp_router`: the **router** - rewrites the message and sends it to the right server.
 
 **Authorino.** The piece that answers "is this caller allowed to do this?" It reads what the reader produced and says allow or deny.
 
-**Istio.** In production, Envoy doesn't run on its own — it runs inside Istio (a service mesh that manages proxies across a cluster). Istio ships with a specific Envoy version baked in, which is why "what Istio version are we on?" decides whether the new native filters are even available yet.
+**Istio.** In production, Envoy doesn't run on its own - it runs inside Istio (a service mesh that manages proxies across a cluster). Istio ships with a specific Envoy version baked in, which is why "what Istio version are we on?" decides whether the new native filters are even available yet.
 
 ---
 
@@ -53,13 +53,13 @@ The part to remember: **the tool name sits inside the message body** (`params.na
 
 Two kinds of request matter.
 
-**1. "What can I do?" — `tools/list` (discovery)**
+**1. "What can I do?" - `tools/list` (discovery)**
 
 ```
 agent → gateway → ask each backend for its tools → combine into one list → send back to agent
 ```
 
-**2. "Do this." — `tools/call` (the actual work)**
+**2. "Do this." - `tools/call` (the actual work)**
 
 ```
 agent → gateway → pick the right backend → forward the call → send the result back
@@ -92,8 +92,6 @@ Who answers each method, and where native and broker differ:
 | `tools/call` | backend runs it; gateway routes and strips prefix | both route to one backend; broker's call goes via the ext-proc router, not its `/mcp` |
 | `ping` | backend answers; the **broker** sends it | only the broker health-checks backends; native doesn't |
 | `tools/list_changed` (a notification, flows up) | backend emits, gateway relays to client | broker **relays** (over SSE); native **doesn't** |
-
-> Full call-flow diagrams for each method are in [`ELI5.md`](ELI5.md) ("The call flows, method by method").
 
 ---
 
@@ -129,7 +127,7 @@ If the gateway didn't remove it, Backend A would receive `serverA_get_weather`, 
 
 ### 2. Why "rewrite the body" is a big deal
 
-The tool name lives *inside* the JSON body, not in an outside label. So removing the tag means editing the message body as it flows through, which is harder than just setting a label. It is exactly why an earlier review ruled out the native filter (it could read the body but not change it). It can change it now.
+The tool name lives *inside* the JSON body, not in an outside label. So removing the tag means editing the message body as it flows through, which is harder than just setting a label. It is exactly why an [earlier review](https://github.com/maleck13/mcp-gateway/tree/mcp-wasm) ruled out the native filter (it could read the body but not change it). It can change it now.
 
 ### 3. Discovery vs. doing
 
@@ -159,7 +157,7 @@ Sometimes a tool needs to ask the user a follow-up in the middle of a call: "whi
 | [Kuadrant/mcp-gateway#809](https://github.com/Kuadrant/mcp-gateway/issues/809) | the original issue defining the investigation scope |
 | [CONNLINK-1026](https://redhat.atlassian.net/browse/CONNLINK-1026) | the operational evaluation adding the caching and latency layer |
 | [Prior Wasm investigation](https://github.com/maleck13/mcp-gateway/tree/mcp-wasm) | the earlier proposal to replace ext-proc with a Wasm filter, before the native filter existed |
-| [Envoy AI Gateway — MCP](https://aigateway.envoyproxy.io/docs/0.5/capabilities/mcp/) | reference implementation showing how another project approached native MCP support |
+| [Envoy AI Gateway - MCP](https://aigateway.envoyproxy.io/docs/0.5/capabilities/mcp/) | reference implementation showing how another project approached native MCP support |
 
 ---
 

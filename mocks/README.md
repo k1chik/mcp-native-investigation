@@ -4,7 +4,7 @@ Two small, controllable MCP servers that sit behind the gateway in the side-by-s
 
 ## Why custom mocks
 
-The tests need to *control* the backend — inject delays, fire notifications, set tool counts — and measure behaviour on a quiet, deterministic target. A real or public MCP server cannot do that reliably.
+The tests need to *control* the backend - inject delays, fire notifications, set tool counts - and measure behaviour on a quiet, deterministic target. A real or public MCP server cannot do that reliably.
 
 ## What they simulate
 

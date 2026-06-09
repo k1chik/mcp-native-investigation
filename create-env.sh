@@ -20,7 +20,7 @@
 #   ./create-env.sh /path/to/dir    # set up somewhere else
 #   ./create-env.sh --smoke         # also build+test mcp-gateway (slower, proves the Go toolchain)
 #
-# Safe to run more than once — it updates existing clones instead of failing.
+# Safe to run more than once - it updates existing clones instead of failing.
 
 set -euo pipefail
 
@@ -60,13 +60,13 @@ MISSING=0
 need() {
   local cmd="$1" why="$2" formula="${3:-}"
   if have "$cmd"; then
-    grn "  ok    $cmd — $why"
+    grn "  ok    $cmd - $why"
   elif [ "$IS_MAC" = 1 ] && [ -n "$formula" ] && have brew; then
     ylw "  install $cmd via Homebrew ($formula)..."
     brew install "$formula"
     grn "  ok    $cmd (installed)"
   else
-    red "  MISSING $cmd — $why"
+    red "  MISSING $cmd - $why"
     [ -n "$formula" ] && red "          install: brew install $formula   (or your package manager)"
     MISSING=1
   fi
@@ -106,11 +106,11 @@ need go     "compiles mcp-gateway from source"                        go
 need make   "drives mcp-gateway build/test targets"                   make
 need jq     "reads JSON-RPC + Envoy /stats in the test scripts"        jq
 need k6     "fires many tools/call requests, reports p50/p99" k6
-have gh && grn "  ok    gh — open PRs/issues (optional)" || ylw "  note  gh not found (only needed to open PRs)"
-have python3 && grn "  ok    python3 — run the mock backends without Docker (optional)" || ylw "  note  python3 not found (only needed to run the mocks without Docker)"
+have gh && grn "  ok    gh - open PRs/issues (optional)" || ylw "  note  gh not found (only needed to open PRs)"
+have python3 && grn "  ok    python3 - run the mock backends without Docker (optional)" || ylw "  note  python3 not found (only needed to run the mocks without Docker)"
 
 if [ "$MISSING" = 1 ]; then
-  echo; red "Some required tools are missing — install them and re-run. Stopping."
+  echo; red "Some required tools are missing - install them and re-run. Stopping."
   exit 1
 fi
 
@@ -120,7 +120,7 @@ echo "2) Checking the Docker daemon"
 if docker info >/dev/null 2>&1; then
   grn "  ok    docker daemon is up ($(docker context show 2>/dev/null || echo default))"
 else
-  red "  MISSING docker daemon is not running — start Docker Desktop / OrbStack and re-run."
+  red "  MISSING docker daemon is not running - start Docker Desktop / OrbStack and re-run."
   exit 1
 fi
 
@@ -163,7 +163,7 @@ if [ "$RUN_SMOKE" = 1 ]; then
   make -C "$WORKDIR/mcp-gateway" test
   grn "  ok    mcp-gateway builds and tests pass"
 else
-  ylw "  skipped mcp-gateway build/test — re-run with --smoke to include it"
+  ylw "  skipped mcp-gateway build/test - re-run with --smoke to include it"
 fi
 
 echo

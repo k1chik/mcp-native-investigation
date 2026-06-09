@@ -18,8 +18,8 @@ This repo contains the prototype, the test harness, and the working notes behind
 
 | File / Dir | What it is |
 |---|---|
-| [`PRIMER.md`](PRIMER.md) | Plain-language introduction to the moving parts — start here if Envoy, MCP, or `Kuadrant/mcp-gateway` are new to you |
-| [`TESTS.md`](TESTS.md) | Test matrix and status tracker — all capability and operational checks with scope boundary |
+| [`PRIMER.md`](PRIMER.md) | Plain-language introduction to the moving parts - start here if Envoy, MCP, or `Kuadrant/mcp-gateway` are new to you |
+| [`TESTS.md`](TESTS.md) | Test matrix and status tracker - all capability and operational checks with scope boundary |
 | [`create-env.sh`](create-env.sh) | One-script environment setup: checks tools, clones sources, pulls images |
 | [`mocks/`](mocks/) | Controllable mock MCP backends used in all test lanes |
 
