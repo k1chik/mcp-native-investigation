@@ -1,0 +1,57 @@
+date:         2026-06-09
+lane:         c1-c3-c4a
+envoy:        v1.38.0
+platform:     darwin arm64
+run command:  ./run-tests.sh c1-c3-c4a
+
+==================== C1 / C3 / C4a ====================
+== initialize (through the gateway) ==
+{"name":"envoy-mcp-gateway","version":"1.0.0"}
+
+== tools/list - expect BOTH backends, prefixed (C3) ==
+  tools: server1__tool1, server1__tool2, server1__tool3, server2__tool1, server2__tool2
+
+== C3 backend-down - stop backend-b, tools/list must degrade gracefully ==
+  C3 backend-down PASS - partial degradation: only live backend returned (server1__tool1, server1__tool2, server1__tool3)
+
+== C3 recovery - restart backend-b, tools/list must return full list again ==
+  C3 recovery PASS - full list returned after 1x2s (server1__tool1, server1__tool2, server1__tool3, server2__tool1, server2__tool2)
+  NOTE: recovery time is non-deterministic (depends on Envoy's STRICT_DNS re-resolution
+  interval). This run recovered in ~2s; manual probing showed up to ~10s. The test polls
+  for up to 16s - a longer recovery on your machine is normal, not a failure.
+
+== C1 negative - malformed body must increment mcp.invalid_json ==
+  C1 negative PASS - invalid_json counter went 0 -> 1 (parser ran)
+
+== C1 negative - valid JSON, missing 'method' field ==
+  C1 JSON-RPC validation PASS - missing method rejected: Invalid or missing MCP request
+
+== C4a - tools/call for every tool on both backends ==
+  server1__tool1 -> "server1 ran tool1" ✓
+  server1__tool2 -> "server1 ran tool2" ✓
+  server1__tool3 -> "server1 ran tool3" ✓
+  server2__tool1 -> "server2 ran tool1" ✓
+  server2__tool2 -> "server2 ran tool2" ✓
+
+== C4a negative - unknown tool name must return a clean error ==
+  C4a unknown tool PASS - clean error returned: Invalid tool name 'server3__tool1': cannot determine backend
+
+== C1 stats: mcp filter counters ==
+http.mcp_gw.mcp.body_too_large: 0
+http.mcp_gw.mcp.invalid_json: 1
+http.mcp_gw.mcp.requests_rejected: 0
+
+== verdict ==
+  C3  PASS - both backends aggregated, colliding tool names disambiguated by prefix
+  C3  PASS - backend-down: partial degradation (live backend only, no crash)
+  C3  PASS - recovery: full tool list returned after backend-b restart
+  C4a PASS - all 5 tools routed and prefix-stripped correctly
+  C4a PASS - unknown tool name returned a clean error (gateway did not crash)
+  C1  PASS - malformed JSON rejected (invalid_json counter incremented)
+  C1  PASS - valid JSON with missing method field rejected cleanly
+  OVERALL PASS
+
+============================== SCORECARD ==============================
+  C1 / C3 / C4a                  PASS
+=======================================================================
+ALL PASSED

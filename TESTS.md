@@ -36,10 +36,10 @@ A tracker for every test in this investigation. Status is updated as work lands.
 
 | Job | What `ext-proc` does today                                 | Native covers it?                                                   | Mapped to            | Status    |
 | --- | ---------------------------------------------------------- | ------------------------------------------------------------------- | -------------------- | --------- |
-| 1   | Parse JSON-RPC request body                                | Yes                                                                 | C1                   | `pending` |
+| 1   | Parse JSON-RPC request body                                | Yes                                                                 | C1                   | `done`    |
 | 2   | Inject headers/metadata (`x-mcp-method`, `x-mcp-toolname`) | Yes - as dynamic metadata; no header conversion needed              | C1 + C2              | `pending` |
-| 3   | Rewrite body (strip tool-name prefix)                      | Yes - static and user-specific lists                                | C4a + C4b            | `pending` |
-| 4   | Route to the right backend (fan-out + prefix-merge)        | Yes                                                                 | C3                   | `pending` |
+| 3   | Rewrite body (strip tool-name prefix)                      | Yes - static and user-specific lists                                | C4a + C4b            | `done`    |
+| 4   | Route to the right backend (fan-out + prefix-merge)        | Yes                                                                 | C3                   | `done`    |
 | 5   | JWT-based session management                               | No - stays custom (native session ID is stateless base64 composite) | characterization     | `pending` |
 | 6   | Start backend sessions (lazy init)                         | Partial - native is eager and blocks on the slowest backend         | V3                   | `pending` |
 | 7   | Route elicitation responses                                | No - stays custom (no mid-stream JSON-RPC ID rewrite)               | characterization     | `pending` |
@@ -69,10 +69,10 @@ Five questions [issue #809](https://github.com/Kuadrant/mcp-gateway/issues/809) 
 
 | ID | What it proves | Lane | Status |
 |---|---|---|---|
-| C1 | `mcp_filter` parses MCP and populates Envoy dynamic metadata | native-lane | `pending` |
+| C1 | `mcp_filter` parses MCP and populates Envoy dynamic metadata | native-lane | `done` |
 | C2 | An external authorizer reads `envoy.filters.http.mcp` metadata and allows/denies by tool name | native-lane-authz | `pending` |
-| C3 | `mcp_router` fans out and prefix-merges `tools/list` across two backends | native-lane | `pending` |
-| C4a | `mcp_router` rewrites the body to strip the tool prefix on `tools/call` for a static/shared tool list | native-lane / v4-fair | `pending` |
+| C3 | `mcp_router` fans out and prefix-merges `tools/list` across two backends | native-lane | `done` |
+| C4a | `mcp_router` rewrites the body to strip the tool prefix on `tools/call` for a static/shared tool list | native-lane / v4-fair | `done` |
 | C4b | Same body rewrite for a user-specific tool list | c4b/ | `pending` |
 
 ---

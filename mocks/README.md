@@ -19,4 +19,4 @@ The gateway proxies HTTP, so these backends speak MCP over HTTP (POST JSON-RPC +
 
 ---
 
-Code and configuration will be added here.
+See [`mock_mcp_server.py`](mock_mcp_server.py) for the implementation.

@@ -1,0 +1,35 @@
+# Native-Envoy MCP lane: bare Envoy v1.38.0 + two mock MCP backends, on one network.
+#
+#   docker compose up -d              # start backends + Envoy
+#   ./smoke.sh                        # prove C1 + C3 + C4a through the gateway
+#   docker compose down               # tear down
+#
+# The gateway front door is http://localhost:10000 ; Envoy admin is http://localhost:9901.
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server2
+      MCP_PORT: "9002"
+      MCP_TOOL_COUNT: "2"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10000:10000"   # MCP gateway front door
+      - "9901:9901"     # Envoy admin / stats
+    depends_on: [backend-a, backend-b]
