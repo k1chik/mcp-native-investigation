@@ -1,0 +1,60 @@
+C4b: per-user tool list — run 2026-06-10
+========================================
+Lane: tests/capability/c4b/
+Envoy: v1.38.0
+Result: PASS
+
+== alice tools/list (one backend: server1 only) ==
+  alice sees: tool1, tool2, tool3
+  alice tools/list PASS - server1 tools visible, no prefix (one-backend config)
+
+== bob tools/list (two-backend: server1 + server2) ==
+  bob sees: server1__tool1, server1__tool2, server1__tool3, server2__tool1, server2__tool2
+  bob tools/list PASS - both backends visible, prefixed
+
+== C4b allow: alice calls tool1 (unprefixed, one-backend naming) ==
+  tool1 via alice -> "server1 ran tool1" ✓
+
+== C4b observation: alice calls server2__tool1 (one-backend pass-through behavior) ==
+  server2__tool1 via alice -> "server1 ran server2__tool1"
+  (one-backend mcp_router passes all calls through to server1 - no prefix validation)
+
+== C4b allow: bob calls server2__tool1 (prefixed, two-backend naming) ==
+  server2__tool1 via bob -> "server2 ran tool1" ✓
+
+== naming difference observation ==
+  alice (one-backend): tool1, tool2, tool3
+  bob   (multi-backend):  server1__tool1, server2__tool1, ...
+  KEY: the same underlying tool has a different name on each endpoint.
+  This naming inconsistency is the main practical limitation of the two-listener approach.
+  MCPVirtualServer solves this by applying per-user filtering at the aggregation layer.
+
+== verdict ==
+  C4b PASS - alice sees server1 tools (unprefixed, one-backend)
+  C4b PASS - bob sees both backends (prefixed, multi-backend)
+  C4b PASS - alice can call server1 tools by natural name
+  C4b OBS  - alice's one-backend listener passes all calls through (no tool name validation)
+  C4b PASS - bob can call server2 tools (prefix stripped)
+  OVERALL PASS
+
+KEY FINDINGS
+============
+
+Finding 1: one-backend mcp_router does NOT add a prefix
+  - With one server, tools appear as: tool1, tool2, tool3
+  - With two backends, tools appear as: server1__tool1, server2__tool1, ...
+  - The prefix is only added to disambiguate multiple servers
+
+Finding 2: one-backend mcp_router is a transparent pass-through
+  - Does not validate tool names
+  - Any tools/call is forwarded to the one configured server with the full name intact
+  - Calling server2__tool1 on a one-backend listener routes to server1 and returns
+    "server1 ran server2__tool1" (no error)
+  - Tool name isolation requires ext_authz (C2) or MCPVirtualServer
+
+Practical implication:
+  - Two-listener approach gives different tool naming conventions per user
+    (alice: "tool1", bob: "server1__tool1" for the same underlying tool)
+  - This naming inconsistency makes the two-listener approach unsuitable for production
+    per-user filtering without a consistent naming contract
+  - MCPVirtualServer (Kuadrant) solves this properly at the aggregation layer

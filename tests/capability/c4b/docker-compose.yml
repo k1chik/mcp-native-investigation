@@ -1,0 +1,38 @@
+# C4b: per-user tool list
+# Bare Envoy v1.38.0 + two mock MCP backends, two listeners (one per user profile).
+#
+# alice (:10001) sees only server1 tools.
+# bob   (:10002) sees server1 + server2 tools.
+#
+#   docker compose up -d
+#   ./smoke.sh
+#   docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server2
+      MCP_PORT: "9002"
+      MCP_TOOL_COUNT: "2"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10001:10001"   # alice's gateway (server1 only)
+      - "10002:10002"   # bob's gateway (server1 + server2)
+      - "9901:9901"     # Envoy admin / stats
+    depends_on: [backend-a, backend-b]

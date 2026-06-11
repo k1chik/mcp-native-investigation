@@ -1,0 +1,111 @@
+# C4b: per-user tool list - two listeners, each with a different mcp_router server config.
+#
+# alice (:10001) -> mcp_filter -> mcp_router(server1 only)
+# bob   (:10002) -> mcp_filter -> mcp_router(server1 + server2)
+#
+# On bare Envoy, per-user tool list config requires separate listener configs.
+# MCPVirtualServer (Kuadrant) makes this dynamic without needing separate listeners.
+#
+# What this proves:
+#   C4b - prefix strip works correctly for user-specific tool lists.
+#         alice sees only server1 tools; server2 tools are unknown to her listener.
+#         bob sees all tools from both backends.
+
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+static_resources:
+  listeners:
+    # alice: only server1 tools visible
+    - name: alice_gw
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 10001 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: mcp_alice
+                http_filters:
+                  - name: envoy.filters.http.mcp
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.mcp.v3.Mcp
+                      traffic_mode: PASS_THROUGH
+                  - name: envoy.filters.http.mcp_router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.mcp_router.v3.McpRouter
+                      servers:
+                        - name: server1
+                          mcp_cluster:
+                            cluster: backend_a
+                            path: "/"
+                route_config:
+                  name: alice
+                  virtual_hosts:
+                    - name: mcp
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: backend_a }
+
+    # bob: sees both server1 and server2 tools
+    - name: bob_gw
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 10002 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: mcp_bob
+                http_filters:
+                  - name: envoy.filters.http.mcp
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.mcp.v3.Mcp
+                      traffic_mode: PASS_THROUGH
+                  - name: envoy.filters.http.mcp_router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.mcp_router.v3.McpRouter
+                      servers:
+                        - name: server1
+                          mcp_cluster:
+                            cluster: backend_a
+                            path: "/"
+                        - name: server2
+                          mcp_cluster:
+                            cluster: backend_b
+                            path: "/"
+                route_config:
+                  name: bob
+                  virtual_hosts:
+                    - name: mcp
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: backend_a }
+
+  clusters:
+    - name: backend_a
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: backend_a
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: backend-a, port_value: 9001 }
+
+    - name: backend_b
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: backend_b
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: backend-b, port_value: 9002 }
