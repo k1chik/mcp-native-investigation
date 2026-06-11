@@ -1,0 +1,59 @@
+# C2: native-lane-authz
+# Bare Envoy v1.38.0 + OPA ext_authz + two mock MCP backends.
+#
+# Proves C2: an external authorizer reads envoy.filters.http.mcp dynamic metadata
+# and allows/denies by tool name - no header injection from ext-proc needed.
+#
+# Request flow:
+#   client -> :10000
+#     -> mcp_filter   (parses body, writes tool name to dynamic metadata)
+#     -> ext_authz    (gRPC to OPA; OPA reads metadata, allows or denies by tool name)
+#     -> mcp_router   (routes to backend, strips prefix)
+#
+#   docker compose up -d
+#   ./smoke.sh
+#   docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server2
+      MCP_PORT: "9002"
+      MCP_TOOL_COUNT: "2"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  authz:
+    image: openpolicyagent/opa:1.17.1-envoy
+    platform: linux/amd64                     # OPA Envoy image is amd64-only; runs emulated on Apple Silicon
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=info
+      - --config-file=/config/opa-config.yaml
+      - /policy/policy.rego
+    volumes:
+      - "./authz/opa-config.yaml:/config/opa-config.yaml:ro"
+      - "./authz/policy.rego:/policy/policy.rego:ro"
+    ports:
+      - "8181:8181"   # OPA management API (smoke.sh uses /health + /v1/data for inspection)
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10000:10000"   # MCP gateway front door
+      - "9901:9901"     # Envoy admin / stats
+    depends_on: [backend-a, backend-b, authz]

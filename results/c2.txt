@@ -1,0 +1,47 @@
+date:         2026-06-10
+lane:         c2
+envoy:        v1.38.0
+opa:          1.17.1-envoy (amd64/emulated on darwin arm64)
+platform:     darwin arm64
+run command:  ./run-tests.sh c2
+
+==================== C2 ====================
+== metadata shape (from OPA decision log) ==
+envoy.filters.http.mcp = {
+  "id": <request-id>,
+  "is_mcp_request": true,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": { "name": "server1__tool2" }
+}
+
+OPA sees this at:
+  input.attributes.metadataContext.filterMetadata["envoy.filters.http.mcp"]
+  (protojson camelCase - not snake_case)
+  tool name is at .params.name, not a flat .tool_name field
+
+== verdict ==
+  C2  PASS - tools/list allowed (no tool_name in metadata, policy passes through)
+  C2  PASS - server1__tool1 allowed
+  C2  PASS - server1__tool2 denied by OPA reading mcp metadata (no header needed)
+  C2  PASS - server2__tool1 allowed (cross-backend unaffected by policy)
+  OVERALL PASS
+
+== ext_authz counters ==
+  http.mcp_gw.ext_authz.ok:     6
+  http.mcp_gw.ext_authz.denied: 1
+
+============================== SCORECARD ==============================
+  C2                                 PASS
+=======================================================================
+ALL PASSED
+
+== Q2 answer ==
+Yes. Authorino (or any gRPC ext_authz peer) can read MCP tool name directly from
+Envoy dynamic metadata via metadataContext.filterMetadata["envoy.filters.http.mcp"].
+No header conversion step is needed.
+
+The metadata contains the full JSON-RPC params object, so the tool name is at
+params.name (not a pre-extracted "tool_name" field). A policy reading
+input.attributes.metadataContext.filterMetadata["envoy.filters.http.mcp"]["params"]["name"]
+can allow/deny any tool call without ext-proc injecting x-mcp-toolname headers.

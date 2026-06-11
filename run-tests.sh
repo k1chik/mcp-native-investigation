@@ -51,15 +51,25 @@ run_c1_c3_c4a() {
     ./smoke.sh
 }
 
+run_c2() {
+  need docker; need jq
+  lane "C2" \
+    tests/capability/c2 \
+    http://localhost:9901/ready \
+    ./smoke.sh
+}
+
 # ---- dispatch --------------------------------------------------------------------------------
 run_all() {
   run_c1_c3_c4a
+  run_c2
 }
 
 list() {
   cat <<'EOF'
 LANE          PROVES
 c1-c3-c4a     C1 (MCP parse), C3 (fan-out + prefix-merge), C4a (prefix-strip routing)
+c2            C2 (ext_authz reads envoy.filters.http.mcp metadata; allow/deny by tool name)
 EOF
 }
 
@@ -72,6 +82,7 @@ Usage: ./run-tests.sh [TARGET]
 TARGETS:
   all (default)   run every available lane
   c1-c3-c4a       C1, C3, C4a capability checks
+  c2              C2 metadata-based ext_authz check
   list            show available lanes and what they prove
   --help          this message
 
@@ -85,6 +96,7 @@ case "$MODE" in
   list)           list;  exit 0 ;;
   all)            run_all ;;
   c1-c3-c4a)     run_c1_c3_c4a ;;
+  c2)             run_c2 ;;
   *) echo "unknown target: '$MODE'"; echo; usage; exit 2 ;;
 esac
 

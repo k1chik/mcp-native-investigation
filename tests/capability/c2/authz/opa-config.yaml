@@ -1,0 +1,17 @@
+# OPA configuration for the C2 (native-lane-authz) test lane.
+#
+# envoy_ext_authz_grpc starts the gRPC server that Envoy's ext_authz filter calls.
+# Envoy sends a CheckRequest; OPA evaluates data.authz.allow and returns
+# PERMISSION_GRANTED (200) or PERMISSION_DENIED (403) to Envoy.
+#
+# Port 9191 is the gRPC ext_authz endpoint Envoy connects to.
+# Port 8181 is OPA's HTTP management API (used by smoke.sh for /health + /v1/data).
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    enable_reflection: true
+    path: authz/allow
+
+decision_logs:
+  console: true
