@@ -31,7 +31,7 @@ ENVOY_IMAGE="envoyproxy/envoy:${ENVOY_TAG}"
 MOCK_IMAGE="python:3.12-slim"          # runs the mock MCP backends (mocks/ + native-lane/)
 OPA_IMAGE="openpolicyagent/opa:1.17.1-envoy"   # ext_authz authorizer (native-lane-authz/); amd64-only
 BROKER_IMAGE="ghcr.io/kuadrant/mcp-gateway:v0.7.0"   # the mcp-gateway broker (broker-lane/), the comparison lane
-TEST_SERVER1_IMAGE="ghcr.io/kuadrant/mcp-gateway/test-server1:latest"   # broker-compatible backends for the fair latency comparison (v4-fair/)
+TEST_SERVER1_IMAGE="ghcr.io/kuadrant/mcp-gateway/test-server1:latest"   # broker-compatible backends for the latency comparison (v4/)
 TEST_SERVER2_IMAGE="ghcr.io/kuadrant/mcp-gateway/test-server2:latest"
 USERSPEC_IMAGE="ghcr.io/kuadrant/mcp-gateway/test-user-specific-server:latest"   # per-user tool lists (c4b/)
 
