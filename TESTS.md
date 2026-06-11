@@ -39,13 +39,13 @@ Each test runs in one or more lanes. A lane is a self-contained `docker-compose`
 
 *Can native Envoy do the job at all?* Each check runs on bare Envoy `v1.38.0` with no Istio.
 
-| ID  | What it proves                                                                                                      | Lane                  | Status    |
-| --- | ------------------------------------------------------------------------------------------------------------------- | --------------------- | --------- |
-| C1  | `mcp_filter` parses MCP and populates Envoy dynamic metadata                                                        | native-lane           | `done`    |
-| C2  | An external authorizer reads `envoy.filters.http.mcp` metadata and allows/denies by tool name                       | native-lane-authz     | `done`    |
-| C3  | `mcp_router` fans out and prefix-merges `tools/list` across two backends                                            | native-lane           | `done`    |
-| C4a | `mcp_router` strips the tool-name prefix on `tools/call` — one prefix list shared by all clients                    | native-lane / v4      | `done`    |
-| C4b | Same prefix strip, but the allowed-tool list differs per user (requires `MCPVirtualServer`-style per-client config) | c4b/                  | `pending` |
+| ID  | What it proves                                                                                                      | Lane              | Status    |
+| --- | ------------------------------------------------------------------------------------------------------------------- | ----------------- | --------- |
+| C1  | `mcp_filter` parses MCP and populates Envoy dynamic metadata                                                        | native-lane       | `done`    |
+| C2  | An external authorizer reads `envoy.filters.http.mcp` metadata and allows/denies by tool name                       | native-lane-authz | `done`    |
+| C3  | `mcp_router` fans out and prefix-merges `tools/list` across two backends                                            | native-lane       | `done`    |
+| C4a | `mcp_router` strips the tool-name prefix on `tools/call` — one prefix list shared by all clients                    | native-lane / v4  | `done`    |
+| C4b | Same prefix strip, but the allowed-tool list differs per user (requires `MCPVirtualServer`-style per-client config) | c4b/              | `done`    |
 
 ---
 
@@ -60,15 +60,15 @@ Each test runs in one or more lanes. A lane is a self-contained `docker-compose`
 
 V4 measures the latency win. V1 and V3 measure the regression cost. All three must be characterized before Phase 3 can make its recommendation. The expected shape of the answer is a hybrid: native Envoy handles `tools/call` routing; the broker keeps caching, notification handling, and auth.
 
-| ID  | What it measures                                                               | Lanes                      | Bare-Envoy? | Status     |
-| --- | ------------------------------------------------------------------------------ | -------------------------- | ----------- | ---------- |
-| V1  | Caching: upstream `tools/list` hits per backend over M calls                   | native vs broker           | yes         | `pending`  |
-| V2  | Fanout storm: aggregate upstream RPS under `tools/list_changed` at frequency f | native vs broker           | yes         | `pending`  |
+| ID  | What it measures                                                                                                                                                                                                                                                       | Lanes                      | Claim       | Status     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------- | ---------- |
+| V1  | Caching: upstream `tools/list` hits per backend over M calls                                                                                                                                                                                                           | native vs broker           | yes         | `pending`  |
+| V2  | Fanout storm: aggregate upstream RPS under `tools/list_changed` at frequency f                                                                                                                                                                                         | native vs broker           | yes         | `pending`  |
 | V3  | Eager-vs-lazy: client `initialize` latency with one slow backend (lazy init was a deliberate design choice - see `initializeMCPSeverSession` in `internal/mcp-router/request_handlers.go:665` - characterize the tradeoff before recommending native's eager behavior) | native vs broker           | yes         | `pending`  |
-| V4  | Hot-path `tools/call` p50/p99 latency                                          | native vs broker           | yes         | `pending`  |
-| V5  | Virtual-server filtering: tool subset per tenant (`MCPVirtualServer`)          | broker (+ native negative) | no          | `deferred` |
-| V6  | Per-backend auth: distinct credentials per backend                             | broker (+ native negative) | no          | `deferred` |
-| V7  | Prefix migration: `server1_tool` vs `server1__tool` (delimiter change)         | native-lane                | yes         | `pending`  |
+| V4  | Hot-path `tools/call` p50/p99 latency                                                                                                                                                                                                                                  | native vs broker           | yes         | `pending`  |
+| V5  | Virtual-server filtering: tool subset per tenant (`MCPVirtualServer`)                                                                                                                                                                                                  | broker (+ native negative) | no          | `deferred - needs MCPVirtualServer CRD`    |
+| V6  | Per-backend auth: distinct credentials per backend                                                                                                                                                                                                                     | broker (+ native negative) | no          | `deferred - needs AuthPolicy + HTTPRoute`  |
+| V7  | Prefix migration: `server1_tool` vs `server1__tool` (delimiter change)                                                                                                                                                                                                 | native-lane                | yes         | `pending`  |
 
 ---
 
@@ -102,7 +102,7 @@ V5 and V6 are documented from code citations. They are deliberately deferred, no
 | --- | ---------------------------------------------------------- | ------------------------------------------------------------------- | ------------ | --------- |
 | 1   | Parse JSON-RPC request body                                | Yes                                                                 | C1           | `done`    |
 | 2   | Inject headers/metadata (`x-mcp-method`, `x-mcp-toolname`) | Yes - as dynamic metadata; no header conversion needed              | C1 + C2      | `done`    |
-| 3   | Rewrite body (strip tool-name prefix)                      | Yes - static and user-specific lists                                | C4a + C4b    | `done`    |
+| 3   | Rewrite body (strip tool-name prefix)                      | Partial - works for shared lists (C4a); per-user via separate listener configs but no call isolation and inconsistent tool naming (C4b) | C4a + C4b    | `done`    |
 | 4   | Route to the right backend (fan-out + prefix-merge)        | Yes                                                                 | C3           | `done`    |
 | 5   | JWT-based session management                               | No - stays custom (native session ID is stateless base64 composite) | stays custom | `pending` |
 | 6   | Start backend sessions (lazy init)                         | Partial - native is eager and blocks on the slowest backend         | V3           | `pending` |
