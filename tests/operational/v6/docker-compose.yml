@@ -1,0 +1,37 @@
+# V6 — per-backend auth: broker + two mocks, distinct credential per server
+#
+# The broker reads config.yaml and presents `Authorization: <credential>` on its
+# own connection to each backend. server1 gets cred AAA, server2 gets cred BBB.
+# The mocks record the header at GET /__stats -> seen_auth.
+#
+# Run:
+#   docker compose up -d
+#   ./run-v6.sh
+#   docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment: { MCP_NAME: server1, MCP_PORT: "9001", MCP_TOOL_COUNT: "2" }
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment: { MCP_NAME: server2, MCP_PORT: "9002", MCP_TOOL_COUNT: "2" }
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  broker:
+    image: ghcr.io/kuadrant/mcp-gateway:v0.7.0
+    command:
+      - ./mcp_gateway
+      - --mcp-gateway-config=/config/config.yaml
+      - --mcp-broker-public-address=0.0.0.0:8080
+      - --mcp-gateway-public-host=localhost
+      - --mcp-router-address=0.0.0.0:50051
+      - --log-level=4
+    environment: { GATEWAY_SIGNING_KEY: "test-only-not-a-secret" }
+    volumes: ["./config.yaml:/config/config.yaml:ro"]
+    ports: ["8080:8080"]
+    depends_on: [backend-a, backend-b]

@@ -1,0 +1,48 @@
+# C5: single-server MCP gateway — mcp_filter + ext_authz + router (no mcp-gateway).
+# Proves that native Envoy alone is sufficient for a single-backend MCP deployment
+# with AuthPolicy-style policy enforcement.
+#
+# Request flow:
+#   client -> :10000
+#     -> mcp_filter  (parses body, writes method + tool name to dynamic metadata)
+#     -> ext_authz   (gRPC to OPA; OPA reads metadata, allows or denies by tool name)
+#     -> router      (standard; routes to backend-a — plain tool names, no prefix)
+#
+# docker compose up -d
+# ./smoke.sh
+# docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  authz:
+    image: openpolicyagent/opa:1.17.1-envoy
+    platform: linux/amd64                     # OPA Envoy image is amd64-only; runs emulated on Apple Silicon
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=info
+      - --config-file=/config/opa-config.yaml
+      - /policy/policy.rego
+    volumes:
+      - "./authz/opa-config.yaml:/config/opa-config.yaml:ro"
+      - "./authz/policy.rego:/policy/policy.rego:ro"
+    ports:
+      - "8181:8181"   # OPA management API (smoke.sh uses /health for readiness)
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10000:10000"   # MCP gateway front door
+      - "9901:9901"     # Envoy admin / stats
+    depends_on: [backend-a, authz]

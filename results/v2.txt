@@ -1,0 +1,29 @@
+date:         2026-06-13
+lane:         v2
+envoy:        v1.38.0
+platform:     darwin arm64
+run command:  ./run-tests.sh v2
+
+==================== V2 ====================
+
+Waiting for gateway...
+
+########  V2 Part A — client-side SSE relay  ########
+  GET http://localhost:10000 (Accept: text/event-stream) -> HTTP 405
+  V2 Part A PASS — 405 Method Not Allowed: gateway has no client-facing SSE channel
+  (Clients cannot receive tools/list_changed or any server-initiated messages)
+
+########  V2 Part B — backend-side SSE connections  ########
+  backend-a sse_get_connections_total = 0  (backend-a pushes list_changed every 2s)
+  backend-b sse_get_connections_total = 0
+  V2 Part B PASS — mcp_router opened ZERO GET SSE connections to either backend
+  (Gateway never subscribes to backend notifications; it cannot relay list_changed)
+
+============================================================
+V2 verdict: native mcp_router has NO SSE relay in either direction.
+  - Clients cannot receive notifications (405 on GET).
+  - Gateway never opens SSE connections to backends (zero sse_get_connections_total).
+  - No fanout storm is possible because there is no subscription channel.
+  - The actual cost is V1: every client tools/list fans out live to all backends.
+============================================================
+V2 PASS

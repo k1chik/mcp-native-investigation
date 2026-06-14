@@ -1,0 +1,46 @@
+date:         2026-06-13
+lane:         c5
+envoy:        envoyproxy/envoy:v1.38.0
+platform:     darwin arm64
+run command:  ./run-tests.sh c5
+
+==================== C5 ====================
+== waiting for OPA health ==
+  OPA ready
+
+== initialize ==
+{"name":"server1","version":"0.0.1-mock"}
+
+== tools/list — expect plain names (no mcp_router, no prefix) ==
+  tools: tool1, tool2, tool3
+  tools/list PASS — plain tool names confirm no mcp_router in chain
+
+== C5 allow: tool1 ==
+  tool1 -> ALLOWED (200) - "server1 ran tool1" ✓
+
+== C5 deny: tool2 (blocked by OPA — plain name, no prefix) ==
+  tool2 -> DENIED (403) ✓  (OPA read plain "tool2" from mcp metadata)
+
+== C5 allow: tool3 ==
+  tool3 -> ALLOWED (200) - "server1 ran tool3" ✓
+
+== ext_authz stats ==
+cluster.backend_a.ext_authz.denied: 1
+cluster.backend_a.ext_authz.ok: 6
+http.mcp_gw.ext_authz.denied: 1
+http.mcp_gw.ext_authz.disabled: 0
+http.mcp_gw.ext_authz.error: 0
+http.mcp_gw.ext_authz.failure_mode_allowed: 0
+http.mcp_gw.ext_authz.ok: 6
+
+== verdict ==
+  C5 PASS — tools/list plain names (no mcp_router prefix)
+  C5 PASS — tool1 allowed
+  C5 PASS — tool2 denied by OPA (plain name from mcp metadata)
+  C5 PASS — tool3 allowed
+  OVERALL PASS
+
+============================== SCORECARD ==============================
+  C5                             PASS
+=======================================================================
+ALL PASSED

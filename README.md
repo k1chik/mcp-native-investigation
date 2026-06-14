@@ -20,8 +20,35 @@ This repo contains the prototype, the test harness, and the working notes behind
 |---|---|
 | [`PRIMER.md`](PRIMER.md) | Plain-language introduction to the moving parts - start here if Envoy, MCP, or `Kuadrant/mcp-gateway` are new to you |
 | [`TESTS.md`](TESTS.md) | Test matrix and status tracker - all capability and operational checks with scope boundary |
+| [`CONNLINK-DELTA.md`](CONNLINK-DELTA.md) | Row-by-row comparison of our findings against the CONNLINK-1026 gap analysis tables (2.1, 2.2, 2.3) |
 | [`create-env.sh`](create-env.sh) | One-script environment setup: checks tools, clones sources, pulls images |
+| [`run-tests.sh`](run-tests.sh) | Test runner — run all lanes or one at a time (`./run-tests.sh ?` to list) |
 | [`mocks/`](mocks/) | Controllable mock MCP backends used in all test lanes |
+| [`tests/`](tests/) | Per-lane test folders — each has its own Docker stack and smoke script |
+| [`results/`](results/) | Captured output from every lane run |
+
+---
+
+## Running tests
+
+```bash
+# one-time setup: pull images, check tools
+./create-env.sh
+
+# run everything
+./run-tests.sh
+
+# run one lane
+./run-tests.sh c5
+
+# see all available lanes
+./run-tests.sh ?
+
+# tear down anything left running after a crash
+./run-tests.sh clean
+```
+
+Results land in [`results/`](results/). Each lane spins up its own Docker stack, runs, and tears down — no shared state between lanes.
 
 ---
 

@@ -1,0 +1,17 @@
+# V6 broker config — each backend gets a DIFFERENT credential.
+# The broker presents `Authorization: <credential>` on its own
+# connection to that upstream (tool listing + session).
+# The mock backends record what they received at GET /__stats -> seen_auth.
+servers:
+  - name: server1
+    url: http://backend-a:9001
+    hostname: server1.example.com
+    enabled: true
+    prefix: "s1_"
+    credential: "Bearer cred-server1-AAA"
+  - name: server2
+    url: http://backend-b:9002
+    hostname: server2.example.com
+    enabled: true
+    prefix: "s2_"
+    credential: "Bearer cred-server2-BBB"

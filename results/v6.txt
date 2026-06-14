@@ -1,0 +1,24 @@
+date:         2026-06-13
+lane:         v6
+envoy:        n/a (broker lane — mcp-gateway v0.7.0)
+broker:       ghcr.io/kuadrant/mcp-gateway:v0.7.0
+platform:     darwin arm64
+run command:  ./run-tests.sh v6
+
+==================== V6 ====================
+
+Waiting for mocks to be ready...
+Restarting broker so it connects to already-running mocks...
+Opening a client session to ensure broker connects to upstreams...
+
+########  V6 — per-backend auth: broker presents distinct creds  ########
+  backend-a (server1) received from broker: Bearer cred-server1-AAA
+  backend-b (server2) received from broker: Bearer cred-server2-BBB
+
+  V6 PASS — each backend received its OWN distinct credential from the broker.
+            server1 <- cred-server1-AAA  |  server2 <- cred-server2-BBB
+            Native mcp_router has no equivalent — it forwards the client's
+            headers uniformly to all backends (no per-backend broker credential).
+
+============================================================
+V6 PASS

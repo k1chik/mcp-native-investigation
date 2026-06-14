@@ -1,0 +1,92 @@
+# C5: single-server MCP gateway — mcp_filter + ext_authz + router (no mcp_router, no broker).
+#
+# Filter chain (request path):
+#   1. mcp_filter  — parses JSON-RPC body, writes method + tool name to dynamic metadata
+#                    under namespace "envoy.filters.http.mcp"
+#   2. ext_authz   — gRPC to OPA; reads mcp metadata, allows/denies by tool name
+#   3. router      — standard Envoy router; forwards to the single backend (no prefix, no fan-out)
+#
+# Proves: for a single MCP server, native mcp_filter + ext_authz + router
+# is a complete MCP gateway — no mcp_router and no mcp-gateway needed.
+# Tool names are plain (tool1, not server1__tool1) because mcp_router is absent.
+
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+static_resources:
+  listeners:
+    - name: mcp_gateway
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 10000 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: mcp_gw
+                http_filters:
+                  # 1) MCP parser: writes method + tool name to dynamic metadata.
+                  - name: envoy.filters.http.mcp
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.mcp.v3.Mcp
+                      traffic_mode: PASS_THROUGH
+
+                  # 2) Authorization: gRPC to OPA; OPA reads mcp metadata, allows/denies by tool name.
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      grpc_service:
+                        envoy_grpc:
+                          cluster_name: authz
+                        timeout: 5s
+                      transport_api_version: V3
+                      metadata_context_namespaces:
+                        - envoy.filters.http.mcp
+                      failure_mode_allow: false
+
+                  # 3) Standard router: forwards to the single backend.
+                  #    No mcp_router — no prefix added, no fan-out.
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+                route_config:
+                  name: local
+                  virtual_hosts:
+                    - name: mcp
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: backend_a }
+
+  clusters:
+    - name: backend_a
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: backend_a
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: backend-a, port_value: 9001 }
+
+    # authz cluster: OPA gRPC ext_authz server. HTTP/2 required for gRPC.
+    - name: authz
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: authz
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: authz, port_value: 9191 }

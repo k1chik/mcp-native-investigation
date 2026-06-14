@@ -43,7 +43,11 @@ The part to remember: **the tool name sits inside the message body** (`params.na
 - `mcp_filter`: the **reader** - parses the message and makes its details available to the steps that follow.
 - `mcp_router`: the **router** - rewrites the message and sends it to the right server.
 
-**Authorino.** The piece that answers "is this caller allowed to do this?" It reads what the reader produced and says allow or deny.
+**ext_authz.** An Envoy filter that asks an outside service "should I allow this?" It sends the request details — including whatever `mcp_filter` left in the metadata — to that service over gRPC, then waits for a yes or no. It is the link between Envoy and the policy layer.
+
+**Authorino.** The piece that answers "is this caller allowed to do this?" It receives the request from `ext_authz`, reads the tool name out of the metadata, and says allow or deny. In this investigation we use **OPA (Open Policy Agent)** in its place — OPA is a CNCF open-source policy engine where rules are written in a language called Rego. Authorino and OPA both speak the same gRPC protocol `ext_authz` expects, so swapping one for the other is a config change, not a structural one.
+
+**`router` vs `mcp_router` — two separate things.** Every Envoy filter chain needs a terminal filter that actually sends the request somewhere. The standard one is `envoy.filters.http.router` — it has been in Envoy forever and just forwards the request to a cluster based on the route config. `envoy.filters.http.mcp_router` (new in Envoy 1.37+) is a drop-in replacement for it that adds MCP awareness: fan-out across multiple backends, tool-list merging, prefix-add on `tools/list`, prefix-strip on `tools/call`. If you only have one backend, `mcp_router` adds nothing — you use the plain `router`. That is exactly what C5 does.
 
 **Istio.** In production, Envoy doesn't run on its own - it runs inside Istio (a service mesh that manages proxies across a cluster). Istio ships with a specific Envoy version baked in, which is why "what Istio version are we on?" decides whether the new native filters are even available yet.
 
@@ -95,7 +99,7 @@ agent         -- result
 
 ```
 agent
-  |  tools/call { "name": "serverA_get_weather" }
+  |  tools/call { "name": "serverA_get_weather" }   ← single underscore (broker convention)
   v
 Envoy         -- receives request, hands off to ext-proc over gRPC
   |
@@ -216,21 +220,23 @@ The native receptionist is faster for the most common errand (taking one request
 
 ### 1. Why tool names get a prefix, and why it is then removed
 
-When the gateway combines tools from several backends into one list, it adds a per-backend tag to each name. So Backend A's `get_weather` becomes `serverA_get_weather`, and Backend B's becomes `serverB_get_weather`. Two reasons:
+When the gateway combines tools from several backends into one list, it adds a per-backend tag to each name. So Backend A's `get_weather` becomes `serverA__get_weather` (with a double underscore), and Backend B's becomes `serverB__get_weather`. Two reasons:
 
 - **Names can collide.** Two backends can both offer a tool called `get_weather`. Without a tag, the agent couldn't tell them apart.
-- **The tag also says where to route.** When the agent later calls `serverA_get_weather`, the gateway reads `serverA` and knows which backend to send it to.
+- **The tag also says where to route.** When the agent later calls `serverA__get_weather`, the gateway reads `serverA` and knows which backend to send it to.
 
-But here is the catch: **Backend A only ever knew its tool as `get_weather`.** It has no idea the gateway is presenting it as `serverA_get_weather`. So before forwarding the call, the gateway removes the tag:
+But here is the catch: **Backend A only ever knew its tool as `get_weather`.** It has no idea the gateway is presenting it as `serverA__get_weather`. So before forwarding the call, the gateway removes the tag:
 
 ```
-agent calls:   serverA_get_weather
+agent calls:   serverA__get_weather
 gateway:       reads "serverA" → choose Backend A
                removes the tag → "get_weather"
 forwards:      get_weather        ← the name Backend A actually recognizes
 ```
 
-If the gateway didn't remove it, Backend A would receive `serverA_get_weather`, find no tool by that name, and return an error. Removing the tag is what makes the routed call work.
+If the gateway didn't remove it, Backend A would receive `serverA__get_weather`, find no tool by that name, and return an error. Removing the tag is what makes the routed call work.
+
+**One gotcha: the delimiter changed.** The old broker used a single underscore (`serverA_get_weather`). The native filter uses a double underscore (`serverA__get_weather`). Any client that learned tool names from the broker and hardcoded them will break when switching to the native filter — it is not a config flag, it is a rename.
 
 ### 2. Why "rewrite the body" is a big deal
 
@@ -244,13 +250,43 @@ The tool name lives *inside* the JSON body, not in an outside label. So removing
 
 A conversation with a backend often spans several requests. The gateway keeps a *session*: a thread that ties those requests together, and links the agent's session to each backend's session. Who keeps that thread, and how, is one of the open questions.
 
-### 5. Elicitation
+### 5. What the policy layer can and cannot see
+
+`mcp_filter` reads the request body and makes these fields available to the next step (`ext_authz`):
+
+- `method` — e.g. `tools/call`
+- `params.name` — the tool name
+- `id`, `jsonrpc`, `is_mcp_request`
+
+It does **not** expose `params.arguments` — the actual inputs the agent sent to the tool. So a policy that needs to say "block any call to `run_query` where the argument `table` is `users`" cannot do that with the metadata alone. It would need a separate ext-proc step to inspect the body. For most real-world policies (allow/deny by tool name, by caller identity, by time of day) the available fields are enough.
+
+### 6. Elicitation
 
 Sometimes a tool needs to ask the user a follow-up in the middle of a call: "which account did you mean?" Getting that follow-up back to the right backend is fiddly and stateful, and it is one of the jobs that stays custom.
 
-### 6. "Native vs. broker": what is being compared
+### 7. "Native vs. broker": what is being compared
 
 "Native" means the built-in Envoy filters. "Broker" (or "ext-proc") means the current custom gateway code. The whole investigation is one question: **how much can move from the custom code to the built-in filters, and what has to stay?**
+
+---
+
+## Two ways to deploy
+
+The investigation uncovered two distinct deployment shapes. They are not the same problem.
+
+**Single backend — no broker needed.**
+One MCP server behind Envoy. No name collisions, no fan-out, no prefixing. The full filter chain is just:
+
+```
+mcp_filter  →  ext_authz  →  router
+```
+
+`mcp_filter` reads the body and writes the tool name to metadata. `ext_authz` asks OPA or Authorino "allow this tool call?" The standard Envoy `router` forwards to the one backend. No `mcp_router`, no `mcp-gateway`, no broker. Tool names stay plain (`get_weather`, not `serverA__get_weather`).
+
+This is the right shape for a team that has one MCP server and wants policy enforcement on it. No extra infrastructure.
+
+**Multiple backends — broker stays for some jobs.**
+Several MCP servers behind one gateway. The native filter handles the hot path well (`tools/call` routing, prefix strip, fan-out). But some jobs remain broker-side: caching the tool list, relaying `list_changed` notifications, connecting to backends lazily, per-backend credentials, and per-tenant tool subsets. The expected shape is a hybrid — native handles the frequent calls, broker keeps the stateful pieces.
 
 ---
 
@@ -261,12 +297,14 @@ Sometimes a tool needs to ask the user a follow-up in the middle of a call: "whi
 | **ext-proc** | The separate helper program Envoy hands MCP work to today |
 | **filter chain** | The line of small steps a request passes through inside Envoy |
 | **mcp_filter / mcp_router** | The new built-in steps: the reader and the router |
-| **prefix / delimiter** | The `serverA_` tag added to tool names; the `_` (or `__`) between tag and name is the delimiter |
+| **prefix / delimiter** | The `serverA__` tag added to tool names so the gateway knows where to route a call. The `__` is the delimiter. Native Envoy uses double underscore; the old broker used single — that difference is a breaking rename when switching. |
 | **fan-out / aggregate** | Asking all backends and combining their answers into one |
 | **dynamic metadata** | The details the reader leaves for later steps to use (instead of outside labels or headers) |
 | **session** | The thread that ties a multi-message conversation together |
 | **elicitation** | A backend asking the user a follow-up mid-call |
-| **Authorino** | The allow/deny permission checker |
+| **ext_authz** | The Envoy filter that calls an outside policy service (OPA or Authorino) and gets back allow or deny |
+| **OPA (Open Policy Agent)** | A CNCF open-source policy engine; rules are written in Rego. Used in this investigation as the ext_authz peer. |
+| **Authorino** | Kuadrant's allow/deny permission checker; the ext_authz peer used in production Kuadrant deployments |
 | **Istio** | The production system that runs Envoy across a cluster; it ships a fixed Envoy version |
 | **Gateway API / HTTPRoute / AuthPolicy** | Config pieces that attach routing and permission rules to backends |
 | **MCPVirtualServer** | The gateway feature that shows different users a different subset of tools |

@@ -1,0 +1,25 @@
+date:         2026-06-13
+lane:         v1-v3-v4
+envoy:        v1.38.0
+platform:     darwin arm64
+run command:  ./run-tests.sh v1-v3-v4
+
+==================== V1 / V3 / V4 ====================
+
+Waiting for gateway...
+
+########  V1 — no cache: every tools/list fans out to all backends  ########
+  10 client tools/list -> backend-a=10  backend-b=10  (expect both >= 10)
+  V1 PASS — no cache confirmed: each client tools/list fanned out to BOTH backends
+
+########  V3 — eager init: slow backend blocks client initialize  ########
+  baseline initialize (no delay): 24ms
+  initialize with backend-b delayed 3s: 3048ms
+  V3 PASS — eager init confirmed: slow backend blocked client initialize (3048ms vs 24ms)
+
+########  V4 — tools/call hot-path latency (10 VUs, 15s, k6)  ########
+  p50=1.18ms  p90=2.23ms  p95=2.54ms  rps=5705
+  V4 PASS — k6 thresholds met (0% failed, p95 under ceiling)
+
+============================================================
+ALL V-TESTS PASS (V1, V3, V4)

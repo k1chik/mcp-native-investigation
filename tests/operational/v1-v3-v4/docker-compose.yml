@@ -1,0 +1,40 @@
+# Operational lane: V1 (caching), V3 (eager-init), V4 (hot-path latency)
+#
+# Same Envoy + two-backend setup as the capability lane, with one addition:
+#   MCP_INIT_DELAY is templated so run-v-tests.sh can restart a backend with a delay
+#      for V3 without rebuilding the image.
+#
+# Run:
+#   docker compose up -d
+#   ./run-v-tests.sh
+#   docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+      MCP_INIT_DELAY: "${BACKEND_A_INIT_DELAY:-0}"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server2
+      MCP_PORT: "9002"
+      MCP_TOOL_COUNT: "2"
+      MCP_INIT_DELAY: "${BACKEND_B_INIT_DELAY:-0}"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10000:10000"
+      - "9901:9901"
+    depends_on: [backend-a, backend-b]

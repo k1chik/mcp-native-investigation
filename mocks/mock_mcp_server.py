@@ -47,6 +47,12 @@ _counts_lock = threading.Lock()
 _seen_auth = {"value": None}
 _auth_lock = threading.Lock()
 
+# Open SSE connections (wfile handles). Used to push server-initiated messages.
+# POST /__trigger_sampling pushes a sampling/createMessage on every open connection.
+_sse_connections = []
+_sse_lock = threading.Lock()
+_sse_get_count = {"value": 0}
+
 NAME = os.environ.get("MCP_NAME", "server")
 PORT = int(os.environ.get("MCP_PORT", "9000"))
 TOOL_COUNT = int(os.environ.get("MCP_TOOL_COUNT", "3"))
@@ -68,6 +74,39 @@ def tools():
             "inputSchema": {"type": "object", "properties": {}},
         })
     return out
+
+
+def resources():
+    return [
+        {
+            "uri": f"mock://{NAME}/resource{i}",
+            "name": f"resource{i}",
+            "description": f"Mock resource {i} on {NAME}",
+            "mimeType": "text/plain",
+        }
+        for i in range(1, 3)
+    ]
+
+
+def resource_templates():
+    return [
+        {
+            "uriTemplate": f"mock://{NAME}/{{id}}",
+            "name": f"template1",
+            "description": f"Mock resource template on {NAME}",
+            "mimeType": "text/plain",
+        }
+    ]
+
+
+def prompts():
+    return [
+        {
+            "name": f"prompt{i}",
+            "description": f"Mock prompt {i} on {NAME}",
+        }
+        for i in range(1, 3)
+    ]
 
 
 def handle_rpc(msg):
@@ -111,6 +150,48 @@ def handle_rpc(msg):
                        "isError": False},
         }
 
+    if method == "resources/list":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": resources()}}
+
+    if method == "resources/templates/list":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"resourceTemplates": resource_templates()}}
+
+    if method == "resources/read":
+        uri = (msg.get("params") or {}).get("uri", "")
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"contents": [{"uri": uri, "text": f"{NAME} content for {uri}", "mimeType": "text/plain"}]},
+        }
+
+    if method == "resources/subscribe":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+
+    if method == "resources/unsubscribe":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+
+    if method == "prompts/list":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": prompts()}}
+
+    if method == "prompts/get":
+        name = (msg.get("params") or {}).get("name", "?")
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {
+                "description": f"Mock prompt {name} on {NAME}",
+                "messages": [{"role": "user", "content": {"type": "text", "text": f"{NAME} template for {name}"}}],
+            },
+        }
+
+    if method == "completion/complete":
+        arg = ((msg.get("params") or {}).get("argument") or {})
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"completion": {"values": [f"{NAME}_{arg.get('value', '')}1", f"{NAME}_{arg.get('value', '')}2"], "hasMore": False}},
+        }
+
+    if method == "logging/setLevel":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+
     # Anything we don't implement: a clean "method not found".
     return {"jsonrpc": "2.0", "id": msg_id,
             "error": {"code": -32601, "message": f"method not found: {method}"}}
@@ -121,6 +202,26 @@ class Handler(BaseHTTPRequestHandler):
         pass  # keep stdout clean; the experiments care about Envoy's stats, not these
 
     def do_POST(self):
+        # Test instrumentation: push a sampling/createMessage on all open SSE connections.
+        if self.path == "/__trigger_sampling":
+            msg = {"jsonrpc": "2.0", "id": 99, "method": "sampling/createMessage",
+                   "params": {"messages": [{"role": "user", "content": {"type": "text", "text": f"sample from {NAME}"}}], "maxTokens": 10}}
+            pushed = 0
+            with _sse_lock:
+                for wfile in list(_sse_connections):
+                    try:
+                        wfile.write(f"data: {json.dumps(msg)}\n\n".encode())
+                        wfile.flush()
+                        pushed += 1
+                    except Exception:
+                        pass
+            payload = json.dumps({"pushed": pushed, "open_connections": len(_sse_connections)}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length else b""
         try:
@@ -156,9 +257,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Test instrumentation: per-method request counts, and a reset.
         if self.path == "/__stats":
-            with _counts_lock, _auth_lock:
-                payload = json.dumps({"server": NAME, "counts": dict(_counts),
-                                      "seen_auth": _seen_auth["value"]}).encode()
+            with _counts_lock, _auth_lock, _sse_lock:
+                payload = json.dumps({
+                    "server": NAME,
+                    "counts": dict(_counts),
+                    "seen_auth": _seen_auth["value"],
+                    "sse_get_connections_total": _sse_get_count["value"],
+                    "sse_connections_open": len(_sse_connections),
+                }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -185,17 +291,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        wfile = self.wfile
+        with _sse_lock:
+            _sse_connections.append(wfile)
+            _sse_get_count["value"] += 1
         try:
             while True:
                 if LIST_CHANGED_EVERY > 0:
                     note = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
-                    self.wfile.write(f"data: {json.dumps(note)}\n\n".encode())
-                    self.wfile.flush()
+                    wfile.write(f"data: {json.dumps(note)}\n\n".encode())
+                    wfile.flush()
                     time.sleep(LIST_CHANGED_EVERY)
                 else:
                     time.sleep(1)  # hold the stream open, send nothing
         except (BrokenPipeError, ConnectionResetError):
             return  # client went away
+        finally:
+            with _sse_lock:
+                _sse_connections.remove(wfile)
 
 
 def main():

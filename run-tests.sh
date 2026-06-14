@@ -11,8 +11,10 @@
 # USAGE:
 #   ./run-tests.sh              # run all available lanes
 #   ./run-tests.sh c1-c3-c4a   # run one lane by name
-#   ./run-tests.sh list         # show available lanes
-#   ./run-tests.sh --help
+#   ./run-tests.sh list         # show available lanes and what they prove
+#   ./run-tests.sh ?            # same as list
+#   ./run-tests.sh clean        # tear down any stacks left running (e.g. after a crash)
+#   ./run-tests.sh --help       # full usage
 # =============================================================================================
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -67,11 +69,48 @@ run_c4b() {
     ./smoke.sh
 }
 
+run_v1_v3_v4() {
+  need docker; need python3
+  lane "V1 / V3 / V4" \
+    tests/operational/v1-v3-v4 \
+    http://localhost:9901/ready \
+    ./run-v-tests.sh
+}
+
+run_v2() {
+  need docker; need python3
+  lane "V2" \
+    tests/operational/v2 \
+    http://localhost:9901/ready \
+    ./run-v2.sh
+}
+
+run_v6() {
+  need docker; need python3
+  # V6 uses the broker on :8080, not Envoy — use the broker readiness as the check
+  lane "V6" \
+    tests/operational/v6 \
+    http://localhost:8080/healthz \
+    ./run-v6.sh
+}
+
+run_c5() {
+  need docker; need jq
+  lane "C5" \
+    tests/capability/c5 \
+    http://localhost:9901/ready \
+    ./smoke.sh
+}
+
 # ---- dispatch --------------------------------------------------------------------------------
 run_all() {
   run_c1_c3_c4a
   run_c2
   run_c4b
+  run_c5
+  run_v1_v3_v4
+  run_v2
+  run_v6
 }
 
 list() {
@@ -80,6 +119,10 @@ LANE          PROVES
 c1-c3-c4a     C1 (MCP parse), C3 (fan-out + prefix-merge), C4a (prefix-strip routing)
 c2            C2 (ext_authz reads envoy.filters.http.mcp metadata; allow/deny by tool name)
 c4b           C4b (prefix strip with per-user tool list; two listener configs)
+c5            C5 (single-server: mcp_filter + ext_authz + router; no mcp-gateway needed)
+v1-v3-v4      V1 (no cache: M client lists -> M hits per backend), V3 (eager init blocks on slow backend), V4 (tools/call p50/p95 latency)
+v2            V2 (no SSE relay: 405 on client GET; zero backend SSE connections from mcp_router)
+v6            V6 (per-backend auth: broker presents distinct credential per upstream; native has no equivalent)
 EOF
 }
 
@@ -94,7 +137,12 @@ TARGETS:
   c1-c3-c4a       C1, C3, C4a capability checks
   c2              C2 metadata-based ext_authz check
   c4b             C4b per-user tool list prefix strip
-  list            show available lanes and what they prove
+  c5              C5 single-server MCP gateway (mcp_filter + ext_authz + router; no mcp-gateway)
+  v1-v3-v4        V1 (no cache), V3 (eager init), V4 (tools/call latency)
+  v2              V2 (no SSE relay in either direction)
+  v6              V6 (per-backend auth: broker distinct credentials per backend)
+  list / ?        show available lanes and what they prove
+  clean           tear down any stacks left running (use after a crashed run)
   --help          this message
 
 Each lane spins up its own Docker environment, runs the smoke check, and tears down.
@@ -102,13 +150,34 @@ Pull images once first with ./create-env.sh.
 EOF
 }
 
+clean() {
+  echo "Tearing down any running lane stacks..."
+  for dir in \
+    tests/capability/c1-c3-c4a \
+    tests/capability/c2 \
+    tests/capability/c4b \
+    tests/capability/c5 \
+    tests/operational/v1-v3-v4 \
+    tests/operational/v2 \
+    tests/operational/v6
+  do
+    ( cd "$dir" && docker compose down --remove-orphans 2>/dev/null ) && echo "  cleaned $dir"
+  done
+  echo "Done."
+}
+
 case "$MODE" in
   -h|--help|help) usage; exit 0 ;;
-  list)           list;  exit 0 ;;
+  list|'?')       list;  exit 0 ;;
+  clean)          clean; exit 0 ;;
   all)            run_all ;;
   c1-c3-c4a)     run_c1_c3_c4a ;;
   c2)             run_c2 ;;
   c4b)            run_c4b ;;
+  c5)             run_c5 ;;
+  v1-v3-v4)       run_v1_v3_v4 ;;
+  v2)             run_v2 ;;
+  v6)             run_v6 ;;
   *) echo "unknown target: '$MODE'"; echo; usage; exit 2 ;;
 esac
 

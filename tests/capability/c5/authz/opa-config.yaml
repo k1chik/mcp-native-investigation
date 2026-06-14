@@ -1,0 +1,11 @@
+# OPA configuration for the C5 (single-server) test lane.
+# Identical to C2 — same gRPC ext_authz plugin; C5 policy.rego differs (plain tool names).
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    enable_reflection: true
+    path: authz/allow
+
+decision_logs:
+  console: true

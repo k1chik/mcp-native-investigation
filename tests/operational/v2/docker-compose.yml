@@ -1,0 +1,40 @@
+# V2 — SSE relay / notification fanout test
+#
+# backend-a is configured to push tools/list_changed notifications over SSE at a
+# fixed interval (MCP_LIST_CHANGED_EVERY). The test checks whether native Envoy
+# relays those notifications to clients.
+#
+# Run:
+#   docker compose up -d
+#   ./run-v2.sh
+#   docker compose down
+
+services:
+  backend-a:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server1
+      MCP_PORT: "9001"
+      MCP_TOOL_COUNT: "3"
+      MCP_LIST_CHANGED_EVERY: "${LIST_CHANGED_EVERY:-2}"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  backend-b:
+    image: python:3.12-slim
+    command: python3 /app/mock_mcp_server.py
+    environment:
+      MCP_NAME: server2
+      MCP_PORT: "9002"
+      MCP_TOOL_COUNT: "2"
+      MCP_LIST_CHANGED_EVERY: "0"
+    volumes: ["../../../mocks/mock_mcp_server.py:/app/mock_mcp_server.py:ro"]
+
+  envoy:
+    image: envoyproxy/envoy:v1.38.0
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+    volumes: ["./envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    ports:
+      - "10000:10000"
+      - "9901:9901"
+    depends_on: [backend-a, backend-b]
