@@ -1,4 +1,4 @@
-date:         2026-06-13
+date:         2026-06-20
 lane:         c5
 envoy:        envoyproxy/envoy:v1.38.0
 platform:     darwin arm64
@@ -24,20 +24,60 @@ run command:  ./run-tests.sh c5
 == C5 allow: tool3 ==
   tool3 -> ALLOWED (200) - "server1 ran tool3" ✓
 
+== edge: tool99 (unknown tool, expect 200 — not in deny list) ==
+  tool99 -> ALLOWED (200) ✓
+
+== edge: tools/call missing params.name (expect 403 — safe default) ==
+  missing name -> DENIED (403) ✓
+
+== edge: tools/call empty name (expect 200 — "" != "tool2") ==
+  empty name -> ALLOWED (200) ✓
+
+== edge: tool2 with extra params (expect 403 — extra fields do not bypass) ==
+  tool2+extra -> DENIED (403) ✓
+
+== edge: missing method field (expect 403 — no mcp metadata written) ==
+  missing method -> DENIED (403) ✓
+
+== edge: empty body (expect 403 — mcp_filter cannot parse) ==
+  empty body -> DENIED (403) ✓
+
+== edge: malformed JSON (expect 400) ==
+  malformed JSON -> 400 ✓
+
+== edge: GET request (expect 403 — no mcp metadata) ==
+  GET -> DENIED (403) ✓
+
 == ext_authz stats ==
-cluster.backend_a.ext_authz.denied: 1
-cluster.backend_a.ext_authz.ok: 6
-http.mcp_gw.ext_authz.denied: 1
+cluster.backend.ext_authz.denied: 19
+cluster.backend.ext_authz.error: 3
+cluster.backend.ext_authz.ok: 31
+http.mcp_gw.ext_authz.denied: 19
 http.mcp_gw.ext_authz.disabled: 0
-http.mcp_gw.ext_authz.error: 0
+http.mcp_gw.ext_authz.error: 3
 http.mcp_gw.ext_authz.failure_mode_allowed: 0
-http.mcp_gw.ext_authz.ok: 6
+http.mcp_gw.ext_authz.filter_state_name_collision: 0
+http.mcp_gw.ext_authz.ignored_dynamic_metadata: 0
+http.mcp_gw.ext_authz.invalid: 0
+http.mcp_gw.ext_authz.ok: 31
+http.mcp_gw.ext_authz.omitted_response_headers: 0
+http.mcp_gw.ext_authz.request_header_limits_reached: 0
+http.mcp_gw.ext_authz.response_header_limits_reached: 0
+http.mcp_gw.ext_authz.shadow_denied: 0
 
 == verdict ==
   C5 PASS — tools/list plain names (no mcp_router prefix)
   C5 PASS — tool1 allowed
   C5 PASS — tool2 denied by OPA (plain name from mcp metadata)
   C5 PASS — tool3 allowed
+  C5 PASS — tool99 (unknown) allowed
+  C5 PASS — missing name denied (safe default)
+  C5 PASS — empty name allowed
+  C5 PASS — tool2+extra denied (no bypass)
+  C5 PASS — missing method denied
+  C5 PASS — empty body denied
+  C5 PASS — malformed JSON → 400
+  C5 PASS — GET denied
   OVERALL PASS
 
 ============================== SCORECARD ==============================

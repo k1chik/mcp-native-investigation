@@ -1,0 +1,165 @@
+# Standalone Envoy v1.38.0 gateway with:
+#   mcp_filter → ext_authz (Authorino) → router
+#
+# Envoy 1.38 is required — current Istio (1.26/1.27) ships with Envoy 1.34/1.35
+# which does not include envoy.filters.http.mcp. This deployment sidesteps Istio
+# entirely and talks to Kuadrant's Authorino directly over gRPC ext_authz.
+#
+# Authorino host matched: "localhost" (the Host header sent when using port-forward)
+# For in-cluster use, add the service FQDN to the AuthConfig hosts list.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy138-config
+  namespace: mcp-demo
+data:
+  envoy.yaml: |
+    admin:
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+    static_resources:
+      listeners:
+        - name: mcp_gateway
+          address:
+            socket_address: { address: 0.0.0.0, port_value: 10000 }
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: mcp_gw
+                    access_log:
+                      - name: envoy.access_loggers.stdout
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                          log_format:
+                            json_format:
+                              ts: "%START_TIME%"
+                              method: "%REQ(:METHOD)%"
+                              path: "%REQ(:PATH)%"
+                              status: "%RESPONSE_CODE%"
+                              mcp_meta: "%DYNAMIC_METADATA(envoy.filters.http.mcp)%"
+                    http_filters:
+                      # 1) MCP parser: writes method + tool name to dynamic metadata
+                      #    under namespace "envoy.filters.http.mcp".
+                      - name: envoy.filters.http.mcp
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.mcp.v3.Mcp
+                          traffic_mode: PASS_THROUGH
+
+                      # 2) ext_authz → Authorino gRPC (port 50051).
+                      #    metadata_context_namespaces forwards mcp metadata to Authorino
+                      #    so the AuthConfig OPA policy can read method and tool name.
+                      - name: envoy.filters.http.ext_authz
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: authorino
+                            timeout: 5s
+                          transport_api_version: V3
+                          metadata_context_namespaces:
+                            - envoy.filters.http.mcp
+                          failure_mode_allow: false
+
+                      # 3) Standard router.
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+                    route_config:
+                      name: local
+                      virtual_hosts:
+                        - name: mcp
+                          domains: ["*"]
+                          routes:
+                            - match: { prefix: "/" }
+                              route: { cluster: backend }
+
+      clusters:
+        - name: backend
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: backend
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: mock-mcp-server.mcp-demo.svc.cluster.local
+                          port_value: 9001
+
+        # Authorino gRPC ext_authz — HTTP/2 required.
+        - name: authorino
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: authorino
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                          port_value: 50051
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy138
+  namespace: mcp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy138
+  template:
+    metadata:
+      labels:
+        app: envoy138
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.38.0
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+          ports:
+            - containerPort: 10000
+              name: proxy
+            - containerPort: 9901
+              name: admin
+          volumeMounts:
+            - name: config
+              mountPath: /etc/envoy
+      volumes:
+        - name: config
+          configMap:
+            name: envoy138-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy138
+  namespace: mcp-demo
+spec:
+  selector:
+    app: envoy138
+  type: NodePort
+  ports:
+    - name: proxy
+      port: 10000
+      targetPort: 10000
+      nodePort: 30000
+    - name: admin
+      port: 9901
+      targetPort: 9901

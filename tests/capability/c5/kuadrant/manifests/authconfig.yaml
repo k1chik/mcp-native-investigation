@@ -1,0 +1,40 @@
+# Authorino AuthConfig that reads envoy.filters.http.mcp metadata and denies tool2.
+#
+# Key findings from this POC:
+# - metadata_context_namespaces in the ext_authz config IS required — Envoy does not
+#   forward dynamic metadata to authz servers unless the namespace is listed there.
+# - In the OPA policy, mcp metadata arrives at:
+#     input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]
+# - Authorino's embedded OPA uses old Rego syntax: no "if" keyword, no "default allow"
+#   (Authorino injects its own default). Helper rules with function-style names also
+#   cause parse errors — use inline conditions instead.
+# - hosts must include the Host header value the client sends. Via port-forward that
+#   is "localhost" (matched by "localhost" entry below). For in-cluster access, add
+#   the FQDN of the envoy138 service.
+apiVersion: authorino.kuadrant.io/v1beta3
+kind: AuthConfig
+metadata:
+  name: mcp-authconfig
+  namespace: mcp-demo
+spec:
+  hosts:
+    - "envoy138.mcp-demo.svc.cluster.local"
+    - "localhost"
+    - "127.0.0.1"
+  authentication:
+    anonymous:
+      anonymous: {}
+  authorization:
+    deny-tool2:
+      opa:
+        rego: |
+          package authz
+
+          allow {
+            input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["method"] != "tools/call"
+          }
+
+          allow {
+            input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["method"] == "tools/call"
+            input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["params"]["name"] != "tool2"
+          }

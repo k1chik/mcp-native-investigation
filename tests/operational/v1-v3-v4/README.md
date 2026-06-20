@@ -57,9 +57,7 @@ with both.
 **V3 — eager init is bounded.** `mcp_router` contacts all backends eagerly at `initialize`
 (`handleInitialize` → `initializeFanout` over all configured backends, waits for all).
 A 3s backend delay blocks the client ~3s. Important nuance: the block is bounded by
-`connect_timeout` (~5s here) — a backend that exceeds the timeout is dropped and the gateway
-degrades gracefully (returns 200 without that backend's tools). A **dead** backend (connection
-refused) does not block; only a **slow/hung** one does.
+`connect_timeout` (~5s here) — a backend that exceeds the timeout is dropped and the gateway degrades gracefully (returns 200 without that backend's tools). A **dead** backend (connection refused) does not block; only a **slow/hung** one does.
 
 **V4 — native hot path is fast.** In-process routing with no gRPC hop delivers p50 ~1.3ms,
 p95 ~2.9ms at ~5,700 rps under 10 VUs. This is the latency saving that motivates the hybrid
