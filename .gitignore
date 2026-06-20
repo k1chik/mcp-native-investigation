@@ -1,6 +1,9 @@
 # internal working docs
 curr-state.md
 CONNLINK-STATUS-REPORT.md
+CONNLINK-DELTA.md
+REPORT.md
+Native MCP Filter as mcp-gateway Replacement.md
 
 # macOS
 .DS_Store
