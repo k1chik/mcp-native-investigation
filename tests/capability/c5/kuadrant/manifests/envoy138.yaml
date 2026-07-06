@@ -91,7 +91,7 @@ data:
                       address:
                         socket_address:
                           address: mock-mcp-server.mcp-demo.svc.cluster.local
-                          port_value: 9001
+                          port_value: 9090
 
         # Authorino gRPC ext_authz — HTTP/2 required.
         - name: authorino

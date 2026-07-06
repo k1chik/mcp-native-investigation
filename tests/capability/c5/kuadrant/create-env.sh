@@ -6,21 +6,23 @@
 #   2. Installs Gateway API CRDs
 #   3. Installs Istio 1.27 (provides the service mesh; Envoy 1.35 — does NOT have mcp_filter)
 #   4. Installs Kuadrant operator + Kuadrant CR (provisions Authorino)
-#   5. Deploys mock-mcp-server and standalone Envoy 1.38 in mcp-demo namespace
-#   6. Applies the AuthConfig that reads mcp metadata and denies tool2
+#   5. Builds the test-server1 MCP server from Kuadrant/mcp-gateway's own test suite
+#      (https://github.com/Kuadrant/mcp-gateway/tree/main/tests/servers/server1) and
+#      loads it into kind, then deploys it + standalone Envoy 1.38 in mcp-demo namespace
+#   6. Applies the AuthConfig that reads mcp metadata and denies the "slow" tool
 #
-# Requirements: kind, helm, kubectl, istioctl (1.27+)
+# Requirements: kind, helm, kubectl, istioctl (1.27+), docker, git
 # istioctl: download from https://istio.io/downloadIstio
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MOCK_SERVER_SRC="$SCRIPT_DIR/../../../../mocks/mock_mcp_server.py"
+MCPGW_REPO="https://github.com/Kuadrant/mcp-gateway.git"
+MCPGW_SRC_DIR="$SCRIPT_DIR/.mcp-gateway-src"   # scratch clone, gitignored — only used to build tests/servers/server1
 
 # ── prereqs ──────────────────────────────────────────────────────────────────
-for cmd in kind helm kubectl istioctl; do
+for cmd in kind helm kubectl istioctl docker git; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found"; exit 1; }
 done
-[ -f "$MOCK_SERVER_SRC" ] || { echo "ERROR: mock_mcp_server.py not found at $MOCK_SERVER_SRC"; exit 1; }
 
 # ── kind cluster ─────────────────────────────────────────────────────────────
 echo "== creating kind cluster =="
@@ -64,10 +66,23 @@ kubectl -n kuadrant-system wait --for=condition=Ready pod -l authorino-resource=
 echo "== creating mcp-demo namespace =="
 kubectl apply -f "$SCRIPT_DIR/manifests/namespace.yaml"
 
-# ── mock backend ──────────────────────────────────────────────────────────────
-echo "== deploying mock MCP backend =="
-kubectl -n mcp-demo create configmap mock-mcp-server-script \
-  --from-file=mock_mcp_server.py="$MOCK_SERVER_SRC" --dry-run=client -o yaml | kubectl apply -f -
+# ── test MCP server (server1) ─────────────────────────────────────────────────
+# Real test server from Kuadrant/mcp-gateway's own test suite, not a hand-rolled mock:
+# https://github.com/Kuadrant/mcp-gateway/tree/main/tests/servers/server1
+# Exposes "time" (allowed) and "slow" (blocked by the demo's policy), plus
+# "greet", "headers", "add_tool".
+echo "== building test MCP server (server1) =="
+if [ -d "$MCPGW_SRC_DIR/.git" ]; then
+  git -C "$MCPGW_SRC_DIR" fetch --quiet origin main
+  git -C "$MCPGW_SRC_DIR" checkout --quiet main
+  git -C "$MCPGW_SRC_DIR" reset --hard --quiet origin/main
+else
+  git clone --quiet --depth 1 "$MCPGW_REPO" "$MCPGW_SRC_DIR"
+fi
+docker build --quiet -t mcp-server1:demo "$MCPGW_SRC_DIR/tests/servers/server1" >/dev/null
+kind load docker-image mcp-server1:demo --name kuadrant-poc
+
+echo "== deploying test MCP server (server1) =="
 kubectl -n mcp-demo apply -f "$SCRIPT_DIR/manifests/mock-backend.yaml"
 kubectl -n mcp-demo wait --for=condition=Ready pod -l app=mock-mcp-server --timeout=120s
 

@@ -15,3 +15,6 @@ __pycache__/
 # editor
 .vscode/
 .idea/
+
+# scratch clone used to build the test-server1 image (see kuadrant/create-env.sh)
+tests/capability/c5/kuadrant/.mcp-gateway-src/

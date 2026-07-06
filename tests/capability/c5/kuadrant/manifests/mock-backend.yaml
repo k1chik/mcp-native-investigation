@@ -1,12 +1,3 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mock-mcp-server-script
-  namespace: mcp-demo
-data:
-  mock_mcp_server.py: |
-    # populated by create-env.sh from mocks/mock_mcp_server.py
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,22 +15,11 @@ spec:
     spec:
       containers:
         - name: server
-          image: python:3.11-slim
-          command: ["python3", "/app/mock_mcp_server.py"]
-          env:
-            - name: MCP_NAME
-              value: "server1"
-            - name: MCP_PORT
-              value: "9001"
+          image: mcp-server1:demo
+          imagePullPolicy: Never
+          command: ["/mcp-test-server", "--http", "0.0.0.0:9090"]
           ports:
-            - containerPort: 9001
-          volumeMounts:
-            - name: server-script
-              mountPath: /app
-      volumes:
-        - name: server-script
-          configMap:
-            name: mock-mcp-server-script
+            - containerPort: 9090
 ---
 apiVersion: v1
 kind: Service
@@ -50,5 +30,5 @@ spec:
   selector:
     app: mock-mcp-server
   ports:
-    - port: 9001
-      targetPort: 9001
+    - port: 9090
+      targetPort: 9090

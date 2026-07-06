@@ -1,4 +1,4 @@
-# Authorino AuthConfig that reads envoy.filters.http.mcp metadata and denies tool2.
+# Authorino AuthConfig that reads envoy.filters.http.mcp metadata and denies "slow".
 #
 # Key findings from this POC:
 # - metadata_context_namespaces in the ext_authz config IS required — Envoy does not
@@ -25,7 +25,7 @@ spec:
     anonymous:
       anonymous: {}
   authorization:
-    deny-tool2:
+    deny-slow:
       opa:
         rego: |
           package authz
@@ -36,5 +36,5 @@ spec:
 
           allow {
             input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["method"] == "tools/call"
-            input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["params"]["name"] != "tool2"
+            input.context.metadata_context.filter_metadata["envoy.filters.http.mcp"]["params"]["name"] != "slow"
           }

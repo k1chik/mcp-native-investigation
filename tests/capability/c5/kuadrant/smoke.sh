@@ -6,10 +6,14 @@
 #   Same filter chain as C5 (Docker Compose), but Authorino replaces OPA as the ext_authz peer
 #   on a real Kuadrant/kind cluster. No mcp-gateway involved.
 #
-#   Policy: allow all tools except tool2.
+#   Backend: server1, the real test MCP server from Kuadrant/mcp-gateway's own test suite
+#   (https://github.com/Kuadrant/mcp-gateway/tree/main/tests/servers/server1) — tools:
+#   time, slow, greet, headers, add_tool.
 #
-#   Happy path: initialize, tools/list, tool1, tool3 → 200
-#               tool2 → 403
+#   Policy: allow all tools except slow.
+#
+#   Happy path: initialize, tools/list, time, greet → 200
+#               slow → 403
 #   Edge cases: unknown tool, missing name, empty name, extra params, missing method,
 #               empty body, malformed JSON, GET → 403 / 400
 #   Metadata proof: Envoy access log shows %DYNAMIC_METADATA(envoy.filters.http.mcp)% per request
@@ -26,8 +30,21 @@ GW="${GW:-http://localhost:10000}"
 ADMIN="${ADMIN:-http://localhost:9901}"
 ENVOY_POD=$(kubectl -n mcp-demo get pod -l app=envoy138 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-post() { curl -s "$GW" -X POST -H 'Content-Type: application/json' -d "$1"; }
-status_post() { curl -s -o /dev/null -w "%{http_code}" "$GW" -X POST -H 'Content-Type: application/json' -d "$1"; }
+# server1 is a real, protocol-compliant MCP server: it rejects tools/list and
+# tools/call outside an initialized session, and replies over SSE (event: message /
+# data: {...}) even without an explicit Accept header. So every call after
+# initialize must carry the mcp-session-id it returned, and every response needs
+# its data line pulled out before handing it to python3.
+SESSION_ID=""
+post() {
+  curl -s "$GW" -X POST -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' -H "mcp-session-id: $SESSION_ID" -d "$1" \
+  | grep '^data:' | sed 's/^data: //'
+}
+status_post() {
+  curl -s -o /dev/null -w "%{http_code}" "$GW" -X POST -H 'Content-Type: application/json' \
+    -H "mcp-session-id: $SESSION_ID" -d "$1"
+}
 
 FAIL=0
 pass() { echo "  PASS — $*"; }
@@ -36,44 +53,48 @@ fail() { echo "  FAIL — $*"; FAIL=1; }
 # ── happy path ────────────────────────────────────────────────────────────────
 
 echo "== initialize (expect 200) =="
-INIT=$(post '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}')
+INIT_RAW=$(curl -s --include -X POST -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' "$GW" \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}')
+SESSION_ID=$(echo "$INIT_RAW" | grep -i "mcp-session-id:" | sed 's/mcp-session-id: //I' | tr -d '\r')
+INIT=$(echo "$INIT_RAW" | grep "^data:" | sed 's/^data: //')
 SERVER=$(echo "$INIT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['serverInfo'])" 2>/dev/null)
-[ -n "$SERVER" ] && pass "initialize → $SERVER" || fail "initialize failed: $INIT"
+[ -n "$SERVER" ] && pass "initialize → $SERVER (session ${SESSION_ID:0:8}...)" || fail "initialize failed: $INIT"
 
 echo ""
 echo "== tools/list (expect 200, plain tool names) =="
 TOOLS=$(post '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(', '.join(t['name'] for t in d['result']['tools']))" 2>/dev/null)
 echo "  tools: $TOOLS"
-echo "$TOOLS" | grep -q "tool1" && ! echo "$TOOLS" | grep -q "server1__" \
+echo "$TOOLS" | grep -q "time" && ! echo "$TOOLS" | grep -q "server1__" \
   && pass "tools/list plain names (no mcp_router prefix)" \
   || fail "unexpected list: $TOOLS"
 
 echo ""
-echo "== tool1 (expect 200 ALLOW) =="
-S=$(status_post '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"tool1"}}')
-B=$(post '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"tool1"}}' \
+echo "== time (expect 200 ALLOW) =="
+S=$(status_post '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"time"}}')
+B=$(post '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"time"}}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['content'][0]['text'])" 2>/dev/null)
-[ "$S" = "200" ] && pass "tool1 allowed ($S) — $B" || fail "tool1 status=$S"
+[ "$S" = "200" ] && pass "time allowed ($S) — $B" || fail "time status=$S"
 
 echo ""
-echo "== tool2 (expect 403 DENY) =="
-S=$(status_post '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"tool2"}}')
-[ "$S" = "403" ] && pass "tool2 denied ($S)" || fail "tool2 status=$S (expected 403)"
+echo "== slow (expect 403 DENY) =="
+S=$(status_post '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"slow","arguments":{"seconds":1}}}')
+[ "$S" = "403" ] && pass "slow denied ($S)" || fail "slow status=$S (expected 403)"
 
 echo ""
-echo "== tool3 (expect 200 ALLOW) =="
-S=$(status_post '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"tool3"}}')
-B=$(post '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"tool3"}}' \
+echo "== greet (expect 200 ALLOW) =="
+S=$(status_post '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"greet","arguments":{"name":"Kuadrant"}}}')
+B=$(post '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"greet","arguments":{"name":"Kuadrant"}}}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['content'][0]['text'])" 2>/dev/null)
-[ "$S" = "200" ] && pass "tool3 allowed ($S) — $B" || fail "tool3 status=$S"
+[ "$S" = "200" ] && pass "greet allowed ($S) — $B" || fail "greet status=$S"
 
 # ── edge cases ────────────────────────────────────────────────────────────────
 
 echo ""
-echo "== tool99 (unknown tool, expect 200 ALLOW — not tool2) =="
-S=$(status_post '{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"tool99"}}')
-[ "$S" = "200" ] && pass "tool99 allowed ($S)" || fail "tool99 status=$S (expected 200)"
+echo "== unknown tool (expect 200 ALLOW — not slow) =="
+S=$(status_post '{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"does_not_exist"}}')
+[ "$S" = "200" ] && pass "unknown tool allowed ($S)" || fail "unknown tool status=$S (expected 200)"
 
 echo ""
 echo "== tools/call missing params.name (expect 403 — safe default) =="
@@ -81,14 +102,14 @@ S=$(status_post '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{}}')
 [ "$S" = "403" ] && pass "missing name denied ($S)" || fail "missing name status=$S (expected 403)"
 
 echo ""
-echo "== tools/call empty name (expect 200 — \"\" != \"tool2\") =="
+echo "== tools/call empty name (expect 200 — \"\" != \"slow\") =="
 S=$(status_post '{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":""}}')
 [ "$S" = "200" ] && pass "empty name allowed ($S)" || fail "empty name status=$S (expected 200)"
 
 echo ""
-echo "== tools/call tool2 + extra fields (expect 403 — extra fields do not bypass) =="
-S=$(status_post '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"tool2","extra":"bypass"}}')
-[ "$S" = "403" ] && pass "tool2+extra denied ($S)" || fail "tool2+extra status=$S (expected 403)"
+echo "== tools/call slow + extra fields (expect 403 — extra fields do not bypass) =="
+S=$(status_post '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"slow","extra":"bypass"}}')
+[ "$S" = "403" ] && pass "slow+extra denied ($S)" || fail "slow+extra status=$S (expected 403)"
 
 echo ""
 echo "== missing method field (expect 403 — no mcp metadata, Authorino denies) =="
