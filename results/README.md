@@ -18,6 +18,7 @@ To reproduce any result, run the matching lane from the repo root:
 | [c2.txt](c2.txt) | C2 | 2026-06-10 | PASS |
 | [c4b.txt](c4b.txt) | C4b | 2026-06-10 | PASS |
 | [c5.txt](c5.txt) | C5 | 2026-06-13 | PASS |
+| [c5-kuadrant.txt](c5-kuadrant.txt) | C5/kuadrant (full Kuadrant stack, real Authorino) — run `tests/capability/c5/kuadrant/smoke.sh` after `tests/capability/c5/kuadrant/create-env.sh` | 2026-07-06 | PASS |
 | [v1-v3-v4.txt](v1-v3-v4.txt) | V1, V3, V4 | 2026-06-13 | PASS |
 | [v2.txt](v2.txt) | V2 | 2026-06-13 | PASS |
 | [v6.txt](v6.txt) | V6 | 2026-06-13 | PASS |

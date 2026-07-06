@@ -1,0 +1,73 @@
+date:         2026-07-06
+lane:         c5/kuadrant
+envoy:        envoyproxy/envoy:v1.38.0
+backend:      Kuadrant/mcp-gateway tests/servers/server1 (real test server, not a mock)
+platform:     Darwin arm64
+run command:  ./smoke.sh
+
+==================== C5/kuadrant ====================
+== initialize (expect 200) ==
+  PASS — initialize → {'name': 'test mcp server 1', 'version': ''} (session WI5LAY2P...)
+
+== tools/list (expect 200, plain tool names) ==
+  tools: add_tool, greet, headers, slow, time
+  PASS — tools/list plain names (no mcp_router prefix)
+
+== time (expect 200 ALLOW) ==
+  PASS — time allowed (200) — 2026-07-06 22:03:15.211153774 +0000 UTC m=+10312.708277233
+
+== slow (expect 403 DENY) ==
+  PASS — slow denied (403)
+
+== greet (expect 200 ALLOW) ==
+  PASS — greet allowed (200) — Hi Kuadrant
+
+== unknown tool (expect 200 ALLOW — not slow) ==
+  PASS — unknown tool allowed (200)
+
+== tools/call missing params.name (expect 403 — safe default) ==
+  PASS — missing name denied (403)
+
+== tools/call empty name (expect 200 — "" != "slow") ==
+  PASS — empty name allowed (200)
+
+== tools/call slow + extra fields (expect 403 — extra fields do not bypass) ==
+  PASS — slow+extra denied (403)
+
+== missing method field (expect 403 — no mcp metadata, Authorino denies) ==
+  PASS — missing method denied (403)
+
+== empty body (expect 403 — mcp_filter cannot parse, no metadata) ==
+  PASS — empty body denied (403)
+
+== malformed JSON (expect 400) ==
+  PASS — malformed JSON → 400
+
+== GET request (expect 403 — no mcp metadata) ==
+  PASS — GET denied (403)
+
+== mcp_filter metadata proof (Envoy access log) ==
+  initialize            name=            → 200
+  tools/list            name=            → 200
+  tools/call            name=time        → 200
+  tools/call            name=slow        → 403
+  tools/call            name=greet       → 200
+  tools/call            name=does_not_exist  → 200
+  tools/call            name=            → 403
+  tools/call            name=            → 200
+  null                  name=            → 403
+  null                  name=            → 400
+  PASS — access log shows mcp_filter metadata for all request types
+
+== ext_authz stats ==
+  cluster.backend.ext_authz.denied: 38
+  cluster.backend.ext_authz.ok: 82
+  http.mcp_gw.ext_authz.denied: 38
+  http.mcp_gw.ext_authz.error: 0
+  http.mcp_gw.ext_authz.failure_mode_allowed: 0
+  http.mcp_gw.ext_authz.ok: 82
+  PASS — failure_mode_allowed=0 (no fail-open events)
+
+== verdict ==
+  OVERALL PASS
+exit code: 0
