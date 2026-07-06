@@ -42,6 +42,13 @@ for 'envoy.filters.http.mcp' with type URL: 'envoy.extensions.filters.http.mcp.v
 So the native filter still cannot run inside Istio's own Gateway, even on 1.30. The
 standalone-Envoy workaround from C5/kuadrant is still required for that part.
 
+This is confirmed at the source level too, not just at runtime: Istio compiles a curated
+subset of upstream Envoy HTTP filters into its proxy image, listed by name in
+[`extensions_build_config.bzl`](https://github.com/istio/proxy/blob/d0839b6065c3b0ff6bdefb1bfaa97c98fc8cb61b/bazel/extension_config/extensions_build_config.bzl)
+(the exact commit backing our Istio 1.30 install). It lists ~50 HTTP filters —
+`ext_authz`, `ext_proc`, `oauth2`, `jwt_authn`, etc. — and `envoy.filters.http.mcp` is not
+among them.
+
 **AuthPolicy itself, independent of the filter, works cleanly.** With the broken
 `EnvoyFilter` removed, a sanity `AuthPolicy` (deny-all) applied to the same Istio 1.30
 Gateway API `Gateway`/`HTTPRoute` was enforced correctly — a plain `403`, with **zero**
