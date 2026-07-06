@@ -143,10 +143,17 @@ Both are documented with working examples in [`authconfig.yaml`](https://github.
 
 This POC ran Envoy 1.38 as a standalone deployment, not through Istio. This is because the current Istio release (1.27) bundles Envoy 1.34: the native MCP filter only exists in 1.38+. As a result, we also had to use AuthConfig (Authorino's lower-level API) directly instead of Kuadrant's AuthPolicy, which requires Istio in the request path.
 
-These are both version-gap issues, not actual design problems. Once Istio ships with Envoy 1.38+ (estimated Istio 1.29–1.30), the steps to move to the full integrated setup are:
+**Update (2026-07-06):** Istio 1.30 shipped in May 2026 and does bundle Envoy 1.38 — we checked ([C6](../tests/capability/c6/), [`results/c6.txt`](../results/c6.txt)). But bundling the right Envoy version turned out not to be enough: Istio builds its own proxy image from a curated subset of upstream Envoy extensions, and `envoy.filters.http.mcp` isn't in that set yet. Trying to load it into an Istio 1.30 Gateway via `EnvoyFilter` gets rejected outright:
 
-1. Replace the standalone Envoy deployment with an `EnvoyFilter` on the Istio Gateway
-2. Replace AuthConfig with a Kuadrant AuthPolicy on the HTTPRoute
+```
+Error adding/updating listener(s) 0.0.0.0_80: Didn't find a registered implementation
+for 'envoy.filters.http.mcp' with type URL: 'envoy.extensions.filters.http.mcp.v3.Mcp'
+```
+
+The good news: the other half of this — swapping AuthConfig for Kuadrant's higher-level AuthPolicy — already works. A sanity `AuthPolicy` applied to a real Istio 1.30 Gateway API `Gateway` was enforced correctly with zero hand-written Envoy config, proving Kuadrant's own wasm-based `ext_authz` wiring is solid on 1.30. So the remaining steps to the fully integrated setup are:
+
+1. Wait for (or contribute) `envoy.filters.http.mcp` support in Istio's own proxy build — not just a newer Istio release
+2. Once that lands, replace AuthConfig with a Kuadrant AuthPolicy on the HTTPRoute — already confirmed to work mechanically
 3. Remove mcp-gateway from the single-server path
 
 Until then, the standalone Envoy 1.38 approach used in this POC is a working interim — it connects directly to Authorino and requires no changes to the Kuadrant operator or Istio installation.

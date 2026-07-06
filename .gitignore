@@ -17,3 +17,4 @@ __pycache__/
 
 # scratch clone used to build the test-server1 image (see kuadrant/create-env.sh)
 tests/capability/c5/kuadrant/.mcp-gateway-src/
+tests/capability/c6/.mcp-gateway-src/

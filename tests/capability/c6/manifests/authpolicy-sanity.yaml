@@ -1,0 +1,25 @@
+# Sanity check, independent of the mcp filter: does Kuadrant's AuthPolicy CRD
+# (as opposed to hand-written AuthConfig + manual ext_authz Envoy config) work
+# at all against an Istio 1.30 Gateway API-managed Gateway, with zero manual
+# Envoy config? A deny-all rule is enough to prove the wasm-based ext_authz
+# plumbing Kuadrant injects automatically is wired correctly end to end.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-authpolicy-sanity
+  namespace: mcp-demo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-route
+  rules:
+    authentication:
+      anon:
+        anonymous: {}
+    authorization:
+      deny-all:
+        opa:
+          rego: |
+            package authz
+            allow = false

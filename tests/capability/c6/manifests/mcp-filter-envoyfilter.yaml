@@ -1,0 +1,40 @@
+# Attempts to insert envoy.filters.http.mcp into the Istio-managed Gateway's
+# listener via EnvoyFilter — the only way to add an HTTP filter to a Gateway
+# API-managed workload, since Gateway API itself has no such knob.
+#
+# EXPECTED RESULT ON ISTIO 1.30: this gets NACKed. Istio's proxyv2:1.30.0 image
+# runs Envoy 1.38.1 (confirmed via /server_info) but its build does not compile
+# in the envoy.filters.http.mcp extension, so the factory lookup fails at the
+# listener level:
+#
+#   Error adding/updating listener(s) 0.0.0.0_80: Didn't find a registered
+#   implementation for 'envoy.filters.http.mcp' with type URL:
+#   'envoy.extensions.filters.http.mcp.v3.Mcp'
+#
+# Envoy keeps serving the last-good listener config (this patch is a no-op in
+# practice), so remove this EnvoyFilter before testing anything else — see
+# smoke.sh.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: mcp-filter
+  namespace: mcp-demo
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: envoy.filters.http.mcp
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.mcp.v3.Mcp
+            traffic_mode: PASS_THROUGH

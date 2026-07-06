@@ -52,6 +52,11 @@ kubectl -n mcp-demo port-forward svc/envoy138 10000:10000 9901:9901
 ./smoke.sh
 ```
 
+See [`../c6/`](../c6/) for whether a newer Istio (1.30+, which bundles Envoy 1.38) closes
+this gap and lets AuthPolicy replace AuthConfig — as of 2026-07-06, not yet: Istio's own
+proxy build doesn't compile in `envoy.filters.http.mcp`, though AuthPolicy itself is
+confirmed working.
+
 ## OPA policy (`authz/policy.rego`)
 
 - Allows all non-tool-call requests (no `params.name` in metadata).

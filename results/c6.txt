@@ -1,0 +1,55 @@
+C6 — Istio 1.30 (bundles Envoy 1.38) + Kuadrant AuthPolicy
+============================================================
+Date:      2026-07-06
+Lane:      tests/capability/c6/
+Istio:     1.30.0 (istioctl client version: 1.30.0)
+Envoy:     1.38.1-dev (confirmed live via Gateway workload /server_info)
+Kuadrant:  kuadrant-operator (latest via helm repo kuadrant.io/helm-charts, installed 2026-07-06)
+Platform:  kind v1.36.1 node image, macOS (Apple Silicon), Docker Desktop
+Run:       cd tests/capability/c6 && ./create-env.sh && ./smoke.sh
+
+Question: now that Istio 1.30 pulls in Envoy 1.38, can the C5/kuadrant lane's
+two version-gap workarounds (standalone Envoy deployment, hand-written
+AuthConfig) be replaced with an Istio-managed Gateway API Gateway and
+Kuadrant's higher-level AuthPolicy CRD?
+
+------------------------------------------------------------------------------
+$ ./smoke.sh
+------------------------------------------------------------------------------
+== 1. Envoy version in the Istio-managed Gateway workload ==
+  7319e99e3b3a4cd0f44208e18af02c7399eca1b0/1.38.1-dev/Clean/RELEASE/BoringSSL
+  PASS — Gateway workload runs Envoy 1.38+ (no standalone Envoy needed for the version)
+
+== 2. Attempt to load envoy.filters.http.mcp via EnvoyFilter (expect: rejected) ==
+  2026-07-06T23:00:20.280864Z	warning	envoy config external/envoy/source/extensions/config_subscription/grpc/grpc_subscription_impl.cc:138	gRPC config for type.googleapis.com/envoy.config.listener.v3.Listener rejected: Error adding/updating listener(s) 0.0.0.0_80: Didn't find a registered implementation for 'envoy.filters.http.mcp' with type URL: 'envoy.extensions.filters.http.mcp.v3.Mcp'
+  PASS — confirmed: Istio's proxy build does not register envoy.filters.http.mcp
+  (cleaning up — this EnvoyFilter is a no-op once rejected, but remove it so later LDS pushes aren't blocked)
+
+== 3. Sanity: does AuthPolicy enforce on Istio 1.30 with zero manual Envoy config? ==
+  waiting for AuthPolicy to be Enforced...
+  PASS — AuthPolicy deny-all enforced (403) — Kuadrant wasm ext_authz plumbing works on Istio 1.30, no manual Envoy config
+  cleaning up sanity AuthPolicy...
+
+== verdict ==
+  BLOCKED — Istio 1.30 bundles Envoy 1.38, and AuthPolicy works cleanly on it,
+  but Istio's compiled proxy image does not yet register envoy.filters.http.mcp.
+  The C5/kuadrant standalone-Envoy + AuthConfig approach remains necessary
+  until Istio adds this extension to its build.
+
+------------------------------------------------------------------------------
+Finding
+------------------------------------------------------------------------------
+Istio bundling Envoy 1.38 source is necessary but not sufficient. Istio builds
+its own proxy image (registry.istio.io/release/proxyv2) from a curated subset
+of upstream Envoy extensions — envoy.filters.http.mcp is not yet in that set,
+even though the underlying Envoy version (1.38.1) supports it. This is a
+distinct, independent blocker from the Envoy-version gap the original write-up
+flagged.
+
+The other half of the original question — "can AuthPolicy replace AuthConfig"
+— has a clean yes, isolated from the filter question: a deny-all AuthPolicy
+against the same Istio 1.30 Gateway API Gateway was enforced correctly with
+zero hand-written Envoy config (no envoy138.yaml equivalent, no manual
+ext_authz wiring). Once Istio adds envoy.filters.http.mcp to its build, wiring
+AuthPolicy to read its metadata should be a small follow-on step, not a new
+investigation.
