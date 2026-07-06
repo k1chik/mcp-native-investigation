@@ -6,6 +6,12 @@
 # or rebuild anything — if the cluster is missing, run
 # tests/capability/c5/kuadrant/create-env.sh first (takes a few minutes; don't do
 # this right before a talk).
+#
+# NOTE: only demo.sh is meant to be `source`d. Run this one directly
+# (./start-env.sh). Everything below runs in a subshell so that even if this
+# gets `source`d by mistake, its `exit`/`exec` calls only end the subshell —
+# not your terminal session.
+(
 set -uo pipefail
 
 KCTX="kind-kuadrant-poc"
@@ -47,3 +53,4 @@ echo "  starting: kubectl --context $KCTX -n mcp-demo port-forward svc/envoy138 
 echo "  (leave this running — Ctrl+C to stop when the demo is over)"
 echo ""
 exec kubectl --context "$KCTX" -n mcp-demo port-forward svc/envoy138 10000:10000 9901:9901
+)
