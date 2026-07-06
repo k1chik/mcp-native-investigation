@@ -13,6 +13,16 @@ AI Client → Envoy [mcp_filter → ext_authz → router] → MCP Server
                             ↓
                         Authorino
 ```
+```mermaid
+flowchart LR
+    Client["AI Client"] --> Envoy
+    subgraph Envoy["Envoy 1.38 (standalone)"]
+        direction LR
+        MCP["mcp_filter<br/>(extracts tool name)"] --> EA["ext_authz"] --> R["router"]
+    end
+    R --> Server["server1<br/>(MCP backend)"]
+    EA -.->|"gRPC allow/deny"| Authorino[("Authorino")]
+```
 
 ---
 
@@ -99,6 +109,58 @@ Then run these one at a time, narrating as you go:
 | `call_blocked` | Calls `slow` → `403`, stopped before reaching the backend |
 | `show_proof` | Envoy's own access log (what `mcp_filter` extracted per request) + `ext_authz` stats, including `failure_mode_allowed: 0` — the fail-closed proof |
 | `tail_authorino` | *(if asked)* Live tail of Authorino's raw allow/deny decisions. Caveat: this log shows `authorized: true/false` per request but not the tool name — that only lives in Envoy's `ext_authz` metadata, shown in `show_proof`. `Ctrl+C` to stop. |
+
+### Request flow
+
+`connect` + `list_tools` — establishing a session:
+
+```mermaid
+sequenceDiagram
+    participant C as AI Client
+    participant E as Envoy 1.38
+    participant A as Authorino
+    participant S as server1 (backend)
+
+    Note over C,S: connect
+    C->>E: POST /mcp  initialize
+    E->>A: ext_authz check (method=initialize)
+    A-->>E: ALLOW
+    E->>S: forward
+    S-->>E: 200 + serverInfo
+    E-->>C: 200 + mcp-session-id
+
+    Note over C,S: list_tools
+    C->>E: POST /mcp  tools/list  (mcp-session-id)
+    E->>A: ext_authz check (method=tools/list)
+    A-->>E: ALLOW
+    E->>S: forward
+    S-->>E: 200 + [time, slow, greet, headers, add_tool]
+    E-->>C: 200
+```
+
+`call_allowed` vs. `call_blocked` — the actual policy decision:
+
+```mermaid
+sequenceDiagram
+    participant C as AI Client
+    participant E as Envoy 1.38<br/>(mcp_filter → ext_authz → router)
+    participant A as Authorino
+    participant S as server1 (backend)
+
+    C->>E: POST /mcp  tools/call {name}
+    E->>E: mcp_filter extracts method=tools/call, name
+    E->>A: ext_authz check (method, name)
+    alt name = "time"  (call_allowed)
+        A-->>E: ALLOW
+        E->>S: forward
+        S-->>E: 200 + result
+        E-->>C: 200 OK
+    else name = "slow"  (call_blocked)
+        A-->>E: DENY
+        E-->>C: 403 Forbidden
+        Note right of S: never reached
+    end
+```
 
 ---
 
