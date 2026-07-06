@@ -8,6 +8,9 @@ Read [`Native MCP Filter as mcp-gateway Replacement.md`](./Native%20MCP%20Filter
 first for the full write-up — context, architecture, the 13-test result table, and the
 version-gap notes. This README only covers how to stand the environment up and run the demo.
 
+Giving the live demo? Run [`start-env.sh`](start-env.sh) first — it checks the cluster and
+required pods are healthy and starts (or reuses) the port-forward `demo.sh` needs.
+
 ```
 AI Client → Envoy [mcp_filter → ext_authz → router] → MCP Server
                             ↓
